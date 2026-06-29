@@ -262,6 +262,8 @@ end
         Symbol-to-index mapping for solution phases.
     PP_syms : Dict{Symbol, Int64}
         Symbol-to-index mapping for pure phases.
+    PH_vec : Dict{Symbol, Union{LibMAGEMin.SS_data, LibMAGEMin.PP_data}}
+        Symbol-to-data mapping for stable phases (solution or pure); use `haskey(PH_vec, sym)` to check if a phase is stable before indexing.
     SS_vec : Vector{LibMAGEMin.SS_data}
         Solution phase data.
     mSS_vec : Vector{LibMAGEMin.mSS_data}
@@ -389,6 +391,7 @@ struct gmin_struct{T,I}
 
     SS_syms     :: Dict{Symbol, Int64}
     PP_syms     :: Dict{Symbol, Int64}
+    PH_vec      :: Dict{Symbol, Union{LibMAGEMin.SS_data, LibMAGEMin.PP_data}}
 
     SS_vec      :: Vector{LibMAGEMin.SS_data}
     mSS_vec     :: Vector{LibMAGEMin.mSS_data}
@@ -2843,15 +2846,20 @@ function create_gmin_struct(DB, gv, time; name_solvus = false, seismic_cor = fal
         end
     end
 
-    # create dictionaries for easy access to the phase symbols; has to be after the name_solvus is set!
-    SS_syms = Dict( Symbol("$(ph[i])") => i for i=1:n_SS )
-    PP_syms = Dict( Symbol("$(ph[i])") => i-n_SS for i=n_SS+1:n_SS+n_PP )
-
     # extract information about metastable solution phases
     mSS_vec = convert.(LibMAGEMin.mSS_data, unsafe_wrap(Vector{LibMAGEMin.mstb_SS_phase},stb.mSS,n_mSS))
 
     # Info about the endmembers:
     PP_vec  = convert.(LibMAGEMin.PP_data, unsafe_wrap(Vector{LibMAGEMin.stb_PP_phase},stb.PP,n_PP))
+
+    # create dictionaries for easy access to the phase symbols; has to be after name_solvus, SS_vec and PP_vec are set!
+    # NB: only loop over 1:n_SS+n_PP (not 1:n_ph), as `ph` can contain a trailing buffer-tracking
+    # pure phase beyond n_SS+n_PP that is not represented in SS_vec/PP_vec (see dump_function.c)
+    SS_syms = Dict( Symbol("$(ph[i])") => i for i=1:n_SS )
+    PP_syms = Dict( Symbol("$(ph[i])") => i-n_SS for i=n_SS+1:n_SS+n_PP )
+    PH_vec  = Dict{Symbol, Union{LibMAGEMin.SS_data, LibMAGEMin.PP_data}}(
+        Symbol("$(ph[i])") => (i<=n_SS ? SS_vec[i] : PP_vec[i-n_SS]) for i=1:n_SS+n_PP
+    )
 
     # Names of oxides:
     oxides   = unsafe_string.(unsafe_wrap(Vector{Ptr{Int8}}, stb.oxides, gv.len_ox))
@@ -2900,7 +2908,7 @@ function create_gmin_struct(DB, gv, time; name_solvus = false, seismic_cor = fal
                 fO2, dQFM, aH2O, aSiO2, aTiO2, aAl2O3, aMgO, aFeO,
                 n_PP, n_SS, n_mSS,
                 ph_frac, ph_frac_wt, ph_frac_1at, ph_frac_vol, ph_type, ph_id, ph_id_db, ph, sol_name,
-                SS_syms, PP_syms,
+                SS_syms, PP_syms, PH_vec,
                 SS_vec,  mSS_vec, PP_vec,
                 oxides,  elements,
                 stb.Vp, stb.Vs, Vp_S, Vs_S, stb.bulkMod, stb.shearMod, stb.bulkModulus_M,  stb.bulkModulus_S, stb.shearModulus_S,

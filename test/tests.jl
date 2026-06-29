@@ -167,6 +167,23 @@ end
 
 end
 
+
+@testset verbose=true "test PH_vec keys" begin
+    using MAGEMin_C
+    data    = Initialize_MAGEMin("mp", verbose=-1);
+    P,T     = 6.0, 710.0
+    Xoxides = ["SiO2";  "TiO2";  "Al2O3";  "FeO";   "MnO";   "MgO";   "CaO";   "Na2O";  "K2O"; "H2O"; "O"];
+    X       = [58.509,  1.022,   14.858, 4.371, 0.141, 4.561, 5.912, 3.296, 2.399, 10.0, 0.0];
+    sys_in  = "wt"
+    out     = single_point_minimization(P, T, data, X=X, Xoxides=Xoxides, sys_in=sys_in, scp = 1, dT=1.5)
+    @test haskey(out.PH_vec, :ru)   == false
+    @test haskey(out.PH_vec, :q)    == true
+    @test haskey(out.PH_vec, :opx)  == true
+    
+    Finalize_MAGEMin(data)
+end
+
+
 @testset verbose=true "test activity buffers" begin
     data        =   Initialize_MAGEMin("mp", verbose=-1, buffer="aH2O");
     test        =   0        
