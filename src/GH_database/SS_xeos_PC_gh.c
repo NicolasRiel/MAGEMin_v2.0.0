@@ -118,6 +118,64 @@ struct ss_pc gh_g_pc_xeos[15] = {
     {{ 0.6000, 0.1000, 0.3000 }},
 };
 
+/** Hornblende (Parg-Fparg-Mhst): corners, edge midpoints, interior - same generic ternary coverage as fsp/g. */
+struct ss_pc gh_hb_pc_xeos[15] = {
+    {{ 0.9000, 0.0500, 0.0500 }},
+    {{ 0.0500, 0.9000, 0.0500 }},
+    {{ 0.0500, 0.0500, 0.9000 }},
+    {{ 0.5000, 0.5000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.5000, 0.5000 }},
+    {{ 0.7000, 0.2000, 0.1000 }},
+    {{ 0.7000, 0.1000, 0.2000 }},
+    {{ 0.2000, 0.7000, 0.1000 }},
+    {{ 0.1000, 0.7000, 0.2000 }},
+    {{ 0.2000, 0.1000, 0.7000 }},
+    {{ 0.1000, 0.2000, 0.7000 }},
+    {{ 0.3333, 0.3333, 0.3334 }},
+    {{ 0.6000, 0.3000, 0.1000 }},
+    {{ 0.6000, 0.1000, 0.3000 }},
+};
+
+/** Leucite (Lc-Anl-Nlc): corners, edge midpoints, interior - same generic ternary coverage as fsp/g. */
+struct ss_pc gh_lc_pc_xeos[15] = {
+    {{ 0.9000, 0.0500, 0.0500 }},
+    {{ 0.0500, 0.9000, 0.0500 }},
+    {{ 0.0500, 0.0500, 0.9000 }},
+    {{ 0.5000, 0.5000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.5000, 0.5000 }},
+    {{ 0.7000, 0.2000, 0.1000 }},
+    {{ 0.7000, 0.1000, 0.2000 }},
+    {{ 0.2000, 0.7000, 0.1000 }},
+    {{ 0.1000, 0.7000, 0.2000 }},
+    {{ 0.2000, 0.1000, 0.7000 }},
+    {{ 0.1000, 0.2000, 0.7000 }},
+    {{ 0.3333, 0.3333, 0.3334 }},
+    {{ 0.6000, 0.3000, 0.1000 }},
+    {{ 0.6000, 0.1000, 0.3000 }},
+};
+
+/** Melilite (Ak-Geh-Fak-Na): corners, edge midpoints, interior, near-corner points - same generic
+    (4-endmember, tetrahedral) coverage spirit as the 3-endmember grids above. */
+struct ss_pc gh_mel_pc_xeos[15] = {
+    {{ 1.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 1.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 1.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 1.0000 }},
+    {{ 0.5000, 0.5000, 0.0000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.5000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.5000, 0.5000, 0.0000 }},
+    {{ 0.0000, 0.5000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.0000, 0.5000, 0.5000 }},
+    {{ 0.2500, 0.2500, 0.2500, 0.2500 }},
+    {{ 0.7000, 0.1000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.7000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.7000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.1000, 0.7000 }},
+};
+
 /**
     Small value used to shift PC-grid corners/edges off exact 0.0/1.0
     (matches gv.bnd_val, the same eps used for gh's bounds_ref[eps,1-eps]),
@@ -151,6 +209,9 @@ static void GH_shift_pc_grids_once(void){
     for (int k = 0; k < 9;  k++){ GH_shift_row(gh_bi_pc_xeos[k].xeos_pc,   2); }
     for (int k = 0; k < 15; k++){ GH_shift_row(gh_fsp_pc_xeos[k].xeos_pc,  3); }
     for (int k = 0; k < 15; k++){ GH_shift_row(gh_g_pc_xeos[k].xeos_pc,    3); }
+    for (int k = 0; k < 15; k++){ GH_shift_row(gh_hb_pc_xeos[k].xeos_pc,   3); }
+    for (int k = 0; k < 15; k++){ GH_shift_row(gh_lc_pc_xeos[k].xeos_pc,   3); }
+    for (int k = 0; k < 15; k++){ GH_shift_row(gh_mel_pc_xeos[k].xeos_pc,  4); }
     gh_pc_shifted = 1;
 }
 
@@ -166,6 +227,9 @@ static struct ss_pc gh_ol_pc_xeos_work[9];
 static struct ss_pc gh_bi_pc_xeos_work[9];
 static struct ss_pc gh_fsp_pc_xeos_work[15];
 static struct ss_pc gh_g_pc_xeos_work[15];
+static struct ss_pc gh_hb_pc_xeos_work[15];
+static struct ss_pc gh_lc_pc_xeos_work[15];
+static struct ss_pc gh_mel_pc_xeos_work[15];
 
 static void GH_build_pc_work(struct ss_pc *src, struct ss_pc *work, int n_row, int n_col, double *z_em){
     for (int k = 0; k < n_row; k++){
@@ -206,5 +270,17 @@ void GH_pc_init_function(  PC_ref  *SS_pc_xeos,
     else if (strcmp(name, "g") == 0){
         GH_build_pc_work(gh_g_pc_xeos, gh_g_pc_xeos_work, 15, 3, z_em);
         SS_pc_xeos[iss].ss_pc_xeos = gh_g_pc_xeos_work;
+    }
+    else if (strcmp(name, "hb") == 0){
+        GH_build_pc_work(gh_hb_pc_xeos, gh_hb_pc_xeos_work, 15, 3, z_em);
+        SS_pc_xeos[iss].ss_pc_xeos = gh_hb_pc_xeos_work;
+    }
+    else if (strcmp(name, "lc") == 0){
+        GH_build_pc_work(gh_lc_pc_xeos, gh_lc_pc_xeos_work, 15, 3, z_em);
+        SS_pc_xeos[iss].ss_pc_xeos = gh_lc_pc_xeos_work;
+    }
+    else if (strcmp(name, "mel") == 0){
+        GH_build_pc_work(gh_mel_pc_xeos, gh_mel_pc_xeos_work, 15, 4, z_em);
+        SS_pc_xeos[iss].ss_pc_xeos = gh_mel_pc_xeos_work;
     }
 }

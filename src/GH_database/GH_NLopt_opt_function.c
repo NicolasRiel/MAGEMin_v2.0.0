@@ -123,6 +123,15 @@ SS_ref NLopt_opt_gh_bi_function(global_variable gv, SS_ref SS_ref_db){
 SS_ref NLopt_opt_gh_g_function(global_variable gv, SS_ref SS_ref_db){
     return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_g);
 }
+SS_ref NLopt_opt_gh_hb_function(global_variable gv, SS_ref SS_ref_db){
+    return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_hb);
+}
+SS_ref NLopt_opt_gh_lc_function(global_variable gv, SS_ref SS_ref_db){
+    return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_lc);
+}
+SS_ref NLopt_opt_gh_mel_function(global_variable gv, SS_ref SS_ref_db){
+    return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_mel);
+}
 
 void GH_NLopt_opt_init(             NLopt_type          *NLopt_opt,
                                     global_variable      gv              ){
@@ -141,6 +150,15 @@ void GH_NLopt_opt_init(             NLopt_type          *NLopt_opt,
         }
         else if (strcmp( gv.SS_list[iss], "g") == 0 ){
             NLopt_opt[iss] = NLopt_opt_gh_g_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "hb") == 0 ){
+            NLopt_opt[iss] = NLopt_opt_gh_hb_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "lc") == 0 ){
+            NLopt_opt[iss] = NLopt_opt_gh_lc_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "mel") == 0 ){
+            NLopt_opt[iss] = NLopt_opt_gh_mel_function;
         }
     }
 }

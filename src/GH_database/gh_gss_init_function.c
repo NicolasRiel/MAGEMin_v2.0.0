@@ -128,6 +128,65 @@ SS_ref G_SS_gh_g_init_function(SS_ref SS_ref_db, global_variable gv){
     return SS_ref_db;
 }
 
+/**
+    Hornblende (Parg-Fparg-Mhst), from xMELTS sources/hornblende.c - NS=0
+    (no internal order parameter) despite 2 real crystallographic sites
+    (M12, M3); direct p=x, n_xeos=n_em=3 (see obj_gh_hb's header comment
+    for why no separate ideal Sconfig is needed on top of the site-mixing
+    entropy already folded into Gex there).
+*/
+SS_ref G_SS_gh_hb_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 3;
+    SS_ref_db.n_em      = 3;
+    SS_ref_db.n_sf      = 3;
+    SS_ref_db.n_w       = 2;
+
+    return SS_ref_db;
+}
+
+/**
+    Leucite (Lc-Anl-Nlc), from xMELTS sources/leucite.c - NS=0, but a
+    genuine two-site (L, S) entropy model, not a plain 3-endmember
+    Sigma(p)*log(p) (see obj_gh_lc's header comment). Direct p=x,
+    n_xeos=n_em=3.
+*/
+SS_ref G_SS_gh_lc_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 3;
+    SS_ref_db.n_em      = 3;
+    SS_ref_db.n_sf      = 3;
+    SS_ref_db.n_w       = 3;
+
+    return SS_ref_db;
+}
+
+/**
+    Melilite (Ak-Geh-Fak-Na), from xMELTS sources/melilite.c - NS=1 (Al/Si
+    ordering within the gehlenite component). Direct p=x, n_xeos=n_em=4 -
+    the internal order parameter is solved by an embedded 1D Newton
+    iteration inside obj_gh_mel itself, not exposed as an NLopt dimension
+    (see obj_gh_mel's header comment).
+*/
+SS_ref G_SS_gh_mel_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 4;
+    SS_ref_db.n_em      = 4;
+    SS_ref_db.n_sf      = 4;
+    SS_ref_db.n_w       = 10;
+
+    return SS_ref_db;
+}
+
 void GH_SS_init(            SS_init_type        *SS_init,
                             global_variable      gv              ){
 
@@ -146,6 +205,15 @@ void GH_SS_init(            SS_init_type        *SS_init,
         }
         else if (strcmp( gv.SS_list[iss], "g") == 0 ){
             SS_init[iss]  = G_SS_gh_g_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "hb") == 0 ){
+            SS_init[iss]  = G_SS_gh_hb_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "lc") == 0 ){
+            SS_init[iss]  = G_SS_gh_lc_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "mel") == 0 ){
+            SS_init[iss]  = G_SS_gh_mel_init_function;
         }
         else{
             printf("\nsolid solution '%s' is not in the 'gh' database, cannot be initiated\n", gv.SS_list[iss]);

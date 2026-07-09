@@ -476,6 +476,235 @@ SS_ref G_SS_gh_g_function(SS_ref SS_ref_db, char* research_group, int EM_dataset
 }
 
 /**
+    Hornblende (Parg-Fparg-Mhst): from xMELTS' sources/hornblende.c. NS=0
+    (no internal order parameter), despite 2 real crystallographic sites
+    (M12, M3) - the site fractions are simple affine functions of p[1],p[2]
+    directly (see obj_gh_hb's header comment). W[] here is bookkeeping
+    only (matches fsp/g's convention); obj_gh_hb reads its own local
+    constants. order: WFEMG (M12 Fe-Mg exchange), WFEAL (M3 Fe3+-Al exchange)
+*/
+SS_ref G_SS_gh_hb_function(SS_ref SS_ref_db, char* research_group, int EM_dataset, int len_ox, bulk_info z_b, double eps){
+    strcpy(SS_ref_db.fName,"hb_MELTS");
+    int i;
+    int n_em = SS_ref_db.n_em;
+
+    char *EM_tmp[] = {"parg","fparg","mhst"};
+    for (i = 0; i < n_em; i++){
+        strcpy(SS_ref_db.EM_list[i], EM_tmp[i]);
+    };
+
+    SS_ref_db.W[0] = 28116.48;
+    SS_ref_db.W[1] = 16780.0;
+
+    em_data parg_eq  = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "parg",  "equilibrium");
+    em_data fparg_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "fparg", "equilibrium");
+    em_data mhst_eq  = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "mhst",  "equilibrium");
+
+    SS_ref_db.gbase[0] = parg_eq.gb;
+    SS_ref_db.gbase[1] = fparg_eq.gb;
+    SS_ref_db.gbase[2] = mhst_eq.gb;
+
+    SS_ref_db.ElShearMod[0] = parg_eq.ElShearMod;
+    SS_ref_db.ElShearMod[1] = fparg_eq.ElShearMod;
+    SS_ref_db.ElShearMod[2] = mhst_eq.ElShearMod;
+
+    SS_ref_db.ElBulkMod[0] = parg_eq.ElBulkMod;
+    SS_ref_db.ElBulkMod[1] = fparg_eq.ElBulkMod;
+    SS_ref_db.ElBulkMod[2] = mhst_eq.ElBulkMod;
+
+    SS_ref_db.ElCp[0] = parg_eq.ElCp;
+    SS_ref_db.ElCp[1] = fparg_eq.ElCp;
+    SS_ref_db.ElCp[2] = mhst_eq.ElCp;
+
+    SS_ref_db.ElExpansivity[0] = parg_eq.ElExpansivity;
+    SS_ref_db.ElExpansivity[1] = fparg_eq.ElExpansivity;
+    SS_ref_db.ElExpansivity[2] = mhst_eq.ElExpansivity;
+
+    for (i = 0; i < len_ox; i++){
+        SS_ref_db.Comp[0][i] = parg_eq.C[i];
+        SS_ref_db.Comp[1][i] = fparg_eq.C[i];
+        SS_ref_db.Comp[2][i] = mhst_eq.C[i];
+    }
+
+    for (i = 0; i < n_em; i++){
+        SS_ref_db.z_em[i] = 1.0;
+    };
+
+    for (i = 0; i < SS_ref_db.n_xeos; i++){
+        SS_ref_db.bounds_ref[i][0] = 0.0+eps;
+        SS_ref_db.bounds_ref[i][1] = 1.0-eps;
+    }
+
+    for (i = 0; i < n_em; i++){ SS_ref_db.d_em[i] = 0.0; }
+    if (GH_boiled_out(len_ox, parg_eq.C,  z_b.bulk_rock)){ SS_ref_db.d_em[0] = 1.0; SS_ref_db.z_em[0] = 0.0; SS_ref_db.bounds_ref[0][0] = 0.0; SS_ref_db.bounds_ref[0][1] = 0.0; }
+    if (GH_boiled_out(len_ox, fparg_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[1] = 1.0; SS_ref_db.z_em[1] = 0.0; SS_ref_db.bounds_ref[1][0] = 0.0; SS_ref_db.bounds_ref[1][1] = 0.0; }
+    if (GH_boiled_out(len_ox, mhst_eq.C,  z_b.bulk_rock)){ SS_ref_db.d_em[2] = 1.0; SS_ref_db.z_em[2] = 0.0; SS_ref_db.bounds_ref[2][0] = 0.0; SS_ref_db.bounds_ref[2][1] = 0.0; }
+
+    return SS_ref_db;
+}
+
+/**
+    Leucite (Lc-Anl-Nlc): from xMELTS' sources/leucite.c. NS=0, but the
+    ideal entropy is a genuine two-site (L: K-Na-H2O, S: K-Na-vacancy,
+    multiplicity 3/2) model, not a plain 3-endmember Sigma(p)*log(p) -
+    see obj_gh_lc's header comment. W[] here is bookkeeping only; obj_gh_lc
+    reads its own local constants. order: WNAK, WNAH, DGR (ternary)
+*/
+SS_ref G_SS_gh_lc_function(SS_ref SS_ref_db, char* research_group, int EM_dataset, int len_ox, bulk_info z_b, double eps){
+    strcpy(SS_ref_db.fName,"lc_MELTS");
+    int i;
+    int n_em = SS_ref_db.n_em;
+
+    char *EM_tmp[] = {"lc","anl","nlc"};
+    for (i = 0; i < n_em; i++){
+        strcpy(SS_ref_db.EM_list[i], EM_tmp[i]);
+    };
+
+    SS_ref_db.W[0] = 7000.0;
+    SS_ref_db.W[1] = 7000.0;
+    SS_ref_db.W[2] = 53000.0;
+
+    em_data lc_eq  = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "lc",  "equilibrium");
+    em_data anl_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "anl", "equilibrium");
+    em_data nlc_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "nlc", "equilibrium");
+
+    SS_ref_db.gbase[0] = lc_eq.gb;
+    SS_ref_db.gbase[1] = anl_eq.gb;
+    SS_ref_db.gbase[2] = nlc_eq.gb;
+
+    SS_ref_db.ElShearMod[0] = lc_eq.ElShearMod;
+    SS_ref_db.ElShearMod[1] = anl_eq.ElShearMod;
+    SS_ref_db.ElShearMod[2] = nlc_eq.ElShearMod;
+
+    SS_ref_db.ElBulkMod[0] = lc_eq.ElBulkMod;
+    SS_ref_db.ElBulkMod[1] = anl_eq.ElBulkMod;
+    SS_ref_db.ElBulkMod[2] = nlc_eq.ElBulkMod;
+
+    SS_ref_db.ElCp[0] = lc_eq.ElCp;
+    SS_ref_db.ElCp[1] = anl_eq.ElCp;
+    SS_ref_db.ElCp[2] = nlc_eq.ElCp;
+
+    SS_ref_db.ElExpansivity[0] = lc_eq.ElExpansivity;
+    SS_ref_db.ElExpansivity[1] = anl_eq.ElExpansivity;
+    SS_ref_db.ElExpansivity[2] = nlc_eq.ElExpansivity;
+
+    for (i = 0; i < len_ox; i++){
+        SS_ref_db.Comp[0][i] = lc_eq.C[i];
+        SS_ref_db.Comp[1][i] = anl_eq.C[i];
+        SS_ref_db.Comp[2][i] = nlc_eq.C[i];
+    }
+
+    for (i = 0; i < n_em; i++){
+        SS_ref_db.z_em[i] = 1.0;
+    };
+
+    for (i = 0; i < SS_ref_db.n_xeos; i++){
+        SS_ref_db.bounds_ref[i][0] = 0.0+eps;
+        SS_ref_db.bounds_ref[i][1] = 1.0-eps;
+    }
+
+    for (i = 0; i < n_em; i++){ SS_ref_db.d_em[i] = 0.0; }
+    if (GH_boiled_out(len_ox, lc_eq.C,  z_b.bulk_rock)){ SS_ref_db.d_em[0] = 1.0; SS_ref_db.z_em[0] = 0.0; SS_ref_db.bounds_ref[0][0] = 0.0; SS_ref_db.bounds_ref[0][1] = 0.0; }
+    if (GH_boiled_out(len_ox, anl_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[1] = 1.0; SS_ref_db.z_em[1] = 0.0; SS_ref_db.bounds_ref[1][0] = 0.0; SS_ref_db.bounds_ref[1][1] = 0.0; }
+    if (GH_boiled_out(len_ox, nlc_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[2] = 1.0; SS_ref_db.z_em[2] = 0.0; SS_ref_db.bounds_ref[2][0] = 0.0; SS_ref_db.bounds_ref[2][1] = 0.0; }
+
+    return SS_ref_db;
+}
+
+/**
+    Melilite (Ak-Geh-Fak-Na), from xMELTS' sources/melilite.c - the first
+    gh phase with a genuine internal order parameter (NS=1, Al/Si
+    tetrahedral ordering within the gehlenite component - see obj_gh_mel's
+    header comment). Iron-akermanite and soda-melilite are reciprocal
+    endmembers (see this file's header comment on "ak0"/"geh0" above):
+    their gbase/Comp/ElXxx are built here at runtime as
+    ak0 + 0.5*fa - 0.5*fo and geh0 + 2*ab - 2*an respectively, reusing
+    fo/fa (already in this table for "ol") and ab/an (already in this
+    table for "fsp") unchanged - verified byte-identical to what xMELTS'
+    own gibbs.c uses for this same reaction.
+    order: DG22p, W12, W12p, W13, W14, W22p, W23, W2p3, W24, W2p4
+*/
+SS_ref G_SS_gh_mel_function(SS_ref SS_ref_db, char* research_group, int EM_dataset, int len_ox, bulk_info z_b, double eps){
+    strcpy(SS_ref_db.fName,"mel_MELTS");
+    int i;
+    int n_em = SS_ref_db.n_em;
+
+    char *EM_tmp[] = {"ak","geh","fak","na"};
+    for (i = 0; i < n_em; i++){
+        strcpy(SS_ref_db.EM_list[i], EM_tmp[i]);
+    };
+
+    SS_ref_db.W[0] = 12000.0;
+    SS_ref_db.W[1] =  9000.0;
+    SS_ref_db.W[2] = 13000.0;
+    SS_ref_db.W[3] = 16000.0;
+    SS_ref_db.W[4] =     0.0;
+    SS_ref_db.W[5] = 38354.0;
+    SS_ref_db.W[6] =  9000.0;
+    SS_ref_db.W[7] = 13000.0;
+    SS_ref_db.W[8] =  9000.0;
+    SS_ref_db.W[9] = 13000.0;
+
+    em_data ak_eq   = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "ak",   "equilibrium");
+    em_data geh_eq  = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "geh",  "equilibrium");
+    em_data ak0_eq  = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "ak0",  "equilibrium");
+    em_data geh0_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "geh0", "equilibrium");
+    em_data fo_eq   = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "fo",   "equilibrium");
+    em_data fa_eq   = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "fa",   "equilibrium");
+    em_data ab_eq   = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "ab",   "equilibrium");
+    em_data an_eq   = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "an",   "equilibrium");
+
+    SS_ref_db.gbase[0] = ak_eq.gb;
+    SS_ref_db.gbase[1] = geh_eq.gb;
+    SS_ref_db.gbase[2] = ak0_eq.gb  + 0.5*fa_eq.gb - 0.5*fo_eq.gb;
+    SS_ref_db.gbase[3] = geh0_eq.gb + 2.0*ab_eq.gb - 2.0*an_eq.gb;
+
+    SS_ref_db.ElShearMod[0] = ak_eq.ElShearMod;
+    SS_ref_db.ElShearMod[1] = geh_eq.ElShearMod;
+    SS_ref_db.ElShearMod[2] = ak0_eq.ElShearMod  + 0.5*fa_eq.ElShearMod - 0.5*fo_eq.ElShearMod;
+    SS_ref_db.ElShearMod[3] = geh0_eq.ElShearMod + 2.0*ab_eq.ElShearMod - 2.0*an_eq.ElShearMod;
+
+    SS_ref_db.ElBulkMod[0] = ak_eq.ElBulkMod;
+    SS_ref_db.ElBulkMod[1] = geh_eq.ElBulkMod;
+    SS_ref_db.ElBulkMod[2] = ak0_eq.ElBulkMod  + 0.5*fa_eq.ElBulkMod - 0.5*fo_eq.ElBulkMod;
+    SS_ref_db.ElBulkMod[3] = geh0_eq.ElBulkMod + 2.0*ab_eq.ElBulkMod - 2.0*an_eq.ElBulkMod;
+
+    SS_ref_db.ElCp[0] = ak_eq.ElCp;
+    SS_ref_db.ElCp[1] = geh_eq.ElCp;
+    SS_ref_db.ElCp[2] = ak0_eq.ElCp  + 0.5*fa_eq.ElCp - 0.5*fo_eq.ElCp;
+    SS_ref_db.ElCp[3] = geh0_eq.ElCp + 2.0*ab_eq.ElCp - 2.0*an_eq.ElCp;
+
+    SS_ref_db.ElExpansivity[0] = ak_eq.ElExpansivity;
+    SS_ref_db.ElExpansivity[1] = geh_eq.ElExpansivity;
+    SS_ref_db.ElExpansivity[2] = ak0_eq.ElExpansivity  + 0.5*fa_eq.ElExpansivity - 0.5*fo_eq.ElExpansivity;
+    SS_ref_db.ElExpansivity[3] = geh0_eq.ElExpansivity + 2.0*ab_eq.ElExpansivity - 2.0*an_eq.ElExpansivity;
+
+    for (i = 0; i < len_ox; i++){
+        SS_ref_db.Comp[0][i] = ak_eq.C[i];
+        SS_ref_db.Comp[1][i] = geh_eq.C[i];
+        SS_ref_db.Comp[2][i] = ak0_eq.C[i]  + 0.5*fa_eq.C[i] - 0.5*fo_eq.C[i];
+        SS_ref_db.Comp[3][i] = geh0_eq.C[i] + 2.0*ab_eq.C[i] - 2.0*an_eq.C[i];
+    }
+
+    for (i = 0; i < n_em; i++){
+        SS_ref_db.z_em[i] = 1.0;
+    };
+
+    for (i = 0; i < SS_ref_db.n_xeos; i++){
+        SS_ref_db.bounds_ref[i][0] = 0.0+eps;
+        SS_ref_db.bounds_ref[i][1] = 1.0-eps;
+    }
+
+    for (i = 0; i < n_em; i++){ SS_ref_db.d_em[i] = 0.0; }
+    if (GH_boiled_out(len_ox, ak_eq.C,          z_b.bulk_rock)){ SS_ref_db.d_em[0] = 1.0; SS_ref_db.z_em[0] = 0.0; SS_ref_db.bounds_ref[0][0] = 0.0; SS_ref_db.bounds_ref[0][1] = 0.0; }
+    if (GH_boiled_out(len_ox, geh_eq.C,         z_b.bulk_rock)){ SS_ref_db.d_em[1] = 1.0; SS_ref_db.z_em[1] = 0.0; SS_ref_db.bounds_ref[1][0] = 0.0; SS_ref_db.bounds_ref[1][1] = 0.0; }
+    if (GH_boiled_out(len_ox, SS_ref_db.Comp[2], z_b.bulk_rock)){ SS_ref_db.d_em[2] = 1.0; SS_ref_db.z_em[2] = 0.0; SS_ref_db.bounds_ref[2][0] = 0.0; SS_ref_db.bounds_ref[2][1] = 0.0; }
+    if (GH_boiled_out(len_ox, SS_ref_db.Comp[3], z_b.bulk_rock)){ SS_ref_db.d_em[3] = 1.0; SS_ref_db.z_em[3] = 0.0; SS_ref_db.bounds_ref[3][0] = 0.0; SS_ref_db.bounds_ref[3][1] = 0.0; }
+
+    return SS_ref_db;
+}
+
+/**
     Per-dataset dispatch (mirrors G_SS_sb11_EM_function): runs the
     phase-specific reference-state function gv.n_Diff times at the P/T
     finite-difference stencil, storing each pass's gbase[] for later
@@ -511,6 +740,15 @@ SS_ref G_SS_gh_EM_function(    global_variable  gv,
         }
         else if (strcmp( name, "g") == 0 ){
             SS_ref_db = G_SS_gh_g_function(SS_ref_db, gv.research_group, EM_dataset, gv.len_ox, z_b, eps);
+        }
+        else if (strcmp( name, "hb") == 0 ){
+            SS_ref_db = G_SS_gh_hb_function(SS_ref_db, gv.research_group, EM_dataset, gv.len_ox, z_b, eps);
+        }
+        else if (strcmp( name, "lc") == 0 ){
+            SS_ref_db = G_SS_gh_lc_function(SS_ref_db, gv.research_group, EM_dataset, gv.len_ox, z_b, eps);
+        }
+        else if (strcmp( name, "mel") == 0 ){
+            SS_ref_db = G_SS_gh_mel_function(SS_ref_db, gv.research_group, EM_dataset, gv.len_ox, z_b, eps);
         }
         else{
             printf("\nsolid solution '%s' is not in the 'gh' database\n", name);

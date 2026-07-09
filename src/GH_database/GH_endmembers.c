@@ -9,37 +9,6 @@
  ** ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ @*/
 #include "GH_endmembers.h"
 
-/**
-    Stage-A Ghiorso/MELTS silicate-liquid basis species (proof of concept).
-
-    Data ported verbatim from xMELTS-master/includes/liq_struct_data.h
-    (xMeltsLiquid[]). Of the 19 real MELTS liquid basis species, NiSi0.5O2,
-    CoSi0.5O2, Ca3(PO4)2 and F2O-1 are omitted here because MAGEMin's shared
-    16-oxide axis table (TC_database/TC_init_database.c, oxide_info) has no
-    NiO/CoO/P2O5/F axis to map them onto; these are minor components in
-    typical bulk-rock compositions and can be re-added later alongside the
-    corresponding oxide axes. SO3 and Cl2O-1 are also omitted: they have no
-    intrinsic thermodynamic data anywhere in xMELTS either (all-zero
-    placeholders even in the original source) and no other real reference
-    state (EOS or literature) was found to replace them with, unlike H2O
-    and CO2 (see below). The CaCO3 ordering species (paired with the
-    CO2 <-> CaSiO3+SiO2 speciation reaction) is deferred to a later stage.
-
-    Comp[] axis order (identical to TC_database's oxide_info table):
-    0 SiO2, 1 Al2O3, 2 CaO, 3 MgO, 4 FeO, 5 K2O, 6 Na2O, 7 TiO2, 8 O,
-    9 MnO, 10 Cr2O3, 11 H2O, 12 CO2 (13 S, 14 Cl, 15 ecp unused - gv.len_ox
-    for "gh" is 13, so these columns are never read)
-
-    Fe2O3 is expressed via the shared "O" excess-oxygen axis (the same
-    convention TC uses for ferric iron): Fe2O3 = 2 FeO + O.
-
-    H2O and CO2's H/S/Cp/EOS fields below are unused placeholders: unlike
-    the other components (built from a solid reference + fusion + Kress
-    liquid-volume EOS, see GH_gem_function.c), their standard-state G is
-    computed directly from a real Pitzer & Sterner (1994) fluid EOS
-    (GH_fluid_eos.c), which needs no per-endmember calibration data of its
-    own beyond (T,P).
-**/
 static const EM_db_gh arr_em_db_gh_liq[13] = {
     /* SiO2 */
     { "SiO2", { 1.0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 },

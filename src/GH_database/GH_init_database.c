@@ -36,16 +36,16 @@ oxide_data oxide_info_gh = {
 gh_dataset gh_db = {
 	1,							/* ds_version (single Stage-A dataset)				*/
 	13,							/* number of oxides									*/
-	19,							/* number of pure phases							*/
-	5,							/* number of solution phases						*/
-	{"SiO2"	,"Al2O3","CaO"	,"MgO"	,"FeO"	,"K2O"	,"Na2O"	,"TiO2"	,"O"	,"MnO"	,"Cr2O3","H2O"	,"CO2"													},
+	18,							/* number of pure phases							*/
+	8,							/* number of solution phases						*/
+	{"SiO2"	,"Al2O3","CaO"	,"MgO"	,"FeO"	,"K2O"	,"Na2O"	,"TiO2"	,"O"	,"MnO"	,"Cr2O3","H2O"	,"CO2"								},
 	{"q"	,"crst"	,"trd"	,"cor"	,"sill"	,"and"	,"ky"	,"ru"	,"sph"	,"perov","cc"	,"arag"	,"mgs"	,"sid"	,
-	 "dol"	,"spu"	,"mu"	,"O2"	,"H2O"																								},
-	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"																								},
+	 "dol"	,"spu"	,"O2"	,"H2O"																										},
+	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"	,"hb"	,"lc"	,"mel"																	    },
 
-	{1		,1		,1		,1		,1																									}, // allow solvus?
-	{26		,9		,15		,9		,15																									}, // # of pseudocompound
-	{0.15	,0.15	,0.15	,0.15	,0.15																								}, // discretization step
+	{1		,1		,1		,1		,1		,1		,1		,1																			}, // allow solvus?
+	{26		,9		,15		,9		,15		,15		,15		,15																			}, // # of pseudocompound
+	{0.15	,0.15	,0.15	,0.15	,0.15	,0.15	,0.15	,0.15																		}, // discretization step
 
 	6.0, 						/** max dG under which a phase is considered to be reintroduced  					*/
 	673.15,						/** max temperature above which PGE solver is active 								*/

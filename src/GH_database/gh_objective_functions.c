@@ -436,6 +436,347 @@ double obj_gh_g(unsigned n, const double *x, double *grad, void *SS_ref_db){
     return d->df;
 }
 
+/**
+    Hornblende (Parg-Fparg-Mhst): ported from xMELTS' sources/hornblende.c.
+    Unlike fsp/g above, this phase has NO separate ideal Sigma(p)*log(p)
+    term added on top of Gex - the site-mixing entropy S below (M12 site,
+    multiplicity 4, Mg-Fe2+; M3 site, multiplicity 1, Al-Fe3+) already IS
+    the complete configurational entropy of the model (real crystallographic
+    sites, not a "treat 3 endmembers as ideally-mixing molecules" fiction),
+    so folding it into Gex=H-T*S and using the same
+    mu_i=Gex+sum_k(delta_ik-p_k)*dGex/dp_k transform already gives the
+    complete df_raw with no extra Sconfig addition (verified: the standard
+    partial-molar identity sum_i mu_Gex[i]*p[i]=Gex holds regardless of
+    what Gex represents, so no double-counting). H/W are raw J (matching
+    fsp/g's own convention); Rgas=d->R*1000 (the true gas constant, not the
+    kJ-scaled d->R used for the simpler phases' R*T*p*log(p) term) is used
+    so the entropy term combines correctly with the raw-J H/W before the
+    final /1000 J->kJ conversion. Only the two non-reference endmembers'
+    own site fractions (xFe2M12=p[1], xFe3M3=p[2]) can hit log(0) if
+    boiled out (bulk missing FeO or, for mhst, FeO+O) - guarded the same
+    way as the simpler phases, via +d_em at the log() call site; their
+    complements (xMgM12, xAlM3) are bounds-protected already (never reach
+    exactly 1) so need no such guard.
+*/
+double obj_gh_hb(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    double T    = d->T;
+    double Rgas = d->R*1000.0;
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 3; i++){ p[i] = x[i]; }
+
+    const double WFEMG = 28116.48, WFEAL = 16780.0;
+
+    double xMgM12  = 1.0-p[1];
+    double xFe2M12 = p[1] + d->d_em[1];
+    double xAlM3   = 1.0-p[2];
+    double xFe3M3  = p[2] + d->d_em[2];
+
+    double H  = WFEMG*p[1] - WFEMG*p[1]*p[1] + WFEAL*p[2] - WFEAL*p[2]*p[2];
+    double S  = -Rgas*(4.0*xMgM12*log(xMgM12) + 4.0*xFe2M12*log(xFe2M12) + xFe3M3*log(xFe3M3) + xAlM3*log(xAlM3));
+    double Gex = H - T*S;   /* V=0 identically for this phase */
+
+    double dGex[3];
+    dGex[0] = 0.0;   /* pargasite is the reference endmember (r0,r1 = x_fparg,x_mhst in xMELTS' own basis) */
+    dGex[1] = WFEMG*(1.0-2.0*p[1]) + 4.0*Rgas*T*log(xFe2M12/xMgM12);
+    dGex[2] = WFEAL*(1.0-2.0*p[2]) +     Rgas*T*log(xFe3M3/xAlM3);
+
+    for (int i = 0; i < 3; i++){
+        double mu = Gex;
+        for (int k = 0; k < 3; k++){
+            double delta_ik = (i==k) ? 1.0 : 0.0;
+            mu += (delta_ik - p[k])*dGex[k];
+        }
+        mu_Gex[i] = mu/1000.0;
+        d->sf[i]  = p[i];
+    }
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 3; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = 0.0;
+    for (int i = 0; i < 3; i++){ d->df_raw += (mu_Gex[i] + gb[i])*p[i]; }
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        for (int i = 0; i < 3; i++){
+            grad[i] = (mu_Gex[i] + gb[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+        }
+    }
+    return d->df;
+}
+
+/**
+    Leucite (Lc-Anl-Nlc): ported from xMELTS' sources/leucite.c. Same
+    "no separate Sconfig" architecture as obj_gh_hb above - the two-site
+    (L: K-Na-H2O; S: K-Na-vacancy, multiplicity 3/2) entropy S below is
+    the complete configurational entropy already. p[0]=lc, p[1]=anl are
+    xMELTS' own independent r0,r1 (per leucite.c's FR0/FR1 macros testing
+    i==0/i==1); p[2]=nlc is the dependent/reference endmember here (note:
+    the opposite convention from hornblende, where index 0 was the
+    reference - this is a per-source-file choice, not a fixed pattern).
+    Known limitation (not yet handled, deferred): unlike obj_gh_hb, the
+    site fractions here are PRODUCTS of p[0],p[1] (e.g. xKL=p0*(1-p1)), so
+    a simple +d_em at the log() site isn't sufficient by itself to safely
+    boil out K2O or H2O absence (p0->0 or p1->0) - not guarded yet, since
+    none of gh's current test bulks zero out K2O or H2O; revisit if that
+    changes.
+*/
+double obj_gh_lc(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    double T    = d->T;
+    double Rgas = d->R*1000.0;
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 3; i++){ p[i] = x[i]; }
+    double p0 = p[0], p1 = p[1];
+
+    const double WNAK = 7000.0, WNAH = 7000.0, DGR = 53000.0;
+
+    double a  = p0*(1.0-p1);
+    double b  = (1.0-p0)*(1.0-p1);
+    double c  = p1;
+    double dd = (2.0/3.0)*p0*p1;
+    double e  = (2.0/3.0)*(1.0-p0)*p1;
+    double f  = 1.0-(2.0/3.0)*p1;
+
+    double K = 1.5*log(2.0/3.0) + 0.5*log(0.5);
+
+    double H = WNAK*p0 + WNAH*p1 - WNAK*p0*p0 - WNAH*p1*p1 + DGR*p0*p1;
+    double S = -Rgas*( a*log(a) + b*log(b) + c*log(c)
+                      + 1.5*(dd*log(dd) + e*log(e) + f*log(f))
+                      - p1*K );
+
+    double Gex = H - T*S;   /* V=0 identically for this phase */
+
+    double dH0 = WNAK - 2.0*WNAK*p0 + DGR*p1;
+    double dH1 = WNAH - 2.0*WNAH*p1 + DGR*p0;
+
+    double dS0 = -Rgas*( (1.0-p1)*log(a/b) + p1*log(dd/e) );
+    double dS1 = -Rgas*( p0*log(dd/a) + (1.0-p0)*log(e/b) + log(c/f) - K );
+
+    double dGex[3];
+    dGex[0] = dH0 - T*dS0;
+    dGex[1] = dH1 - T*dS1;
+    dGex[2] = 0.0;   /* na-leucite is the dependent/reference endmember here */
+
+    for (int i = 0; i < 3; i++){
+        double mu = Gex;
+        for (int k = 0; k < 3; k++){
+            double delta_ik = (i==k) ? 1.0 : 0.0;
+            mu += (delta_ik - p[k])*dGex[k];
+        }
+        mu_Gex[i] = mu/1000.0;
+        d->sf[i]  = p[i];
+    }
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 3; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = 0.0;
+    for (int i = 0; i < 3; i++){ d->df_raw += (mu_Gex[i] + gb[i])*p[i]; }
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        for (int i = 0; i < 3; i++){
+            grad[i] = (mu_Gex[i] + gb[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+        }
+    }
+    return d->df;
+}
+
+/**
+    Melilite (Ak-Geh-Fak-Na): ported from xMELTS' sources/melilite.c. This
+    is gh's first phase with a genuine internal order parameter (NS=1) -
+    a NEW pattern relative to every phase above. p[0]=ak (dependent
+    endmember, xMELTS' own convention - same as obj_gh_hb, opposite of
+    obj_gh_lc), p[1]=geh=r0, p[2]=fak=r1, p[3]=na=r2. s represents Al/Si
+    ordering between the T1 and T2 tetrahedral sites within the gehlenite
+    component (xAl3T1=r0-s, xAl3T2=(r0+s)/2 - conserves total Al while
+    redistributing it between sites).
+
+    s is found by an embedded 1D Newton iteration on dG/ds=0 (using the
+    analytic d2G/ds2 as the Newton denominator), run to convergence BEFORE
+    computing G/grad for the current trial p[] - i.e. s is treated as
+    "solved instantly" at every NLopt evaluation, not as its own NLopt
+    dimension. By the envelope theorem this means the composition
+    gradient dG/dp_k, evaluated at the converged s, needs NO ds/dp_k
+    chain-rule correction (verified directly in xMELTS' own source: the
+    analogous SECOND-derivative mask in melilite.c's gmixMel does exactly
+    this) - so DGDR0/DGDR1/DGDR2 below are the same partial derivatives
+    used elsewhere, just evaluated at s=s*.
+
+    Like obj_gh_hb/obj_gh_lc, there is no separate ideal Sconfig term -
+    the 3-site (Ca/Na octahedral, Mg/Fe/Al/Si T1, Al/Si T2) entropy S
+    below is already the complete configurational entropy.
+
+    Known limitation (deferred, matching obj_gh_lc): boiled-out safety
+    (+d_em at the log() site) is not implemented for p[0] here - none of
+    gh's current test bulks zero out MgO/CaO/Al2O3 simultaneously enough
+    to boil out akermanite while leaving geh/fak/na active, but revisit if
+    that changes (see gh_gss_function.c's G_SS_gh_mel_function for which
+    oxides would trigger it).
+*/
+double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    double T    = d->T;
+    double Rgas = d->R*1000.0;
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 4; i++){ p[i] = x[i]; }
+    double r0 = p[1], r1 = p[2], r2 = p[3];
+    double xMg2T1 = p[0] + d->d_em[0];   /* = x_ak, gh's own independent variable - NOT recomputed as 1-r0-r1-r2, matching the "p[i]=x[i] direct" convention every other gh phase already uses. +d_em guards log(xMg2T1) if ak is boiled out (bounds_ref pins p[0] to exactly 0) - mirrors obj_gh_hb's xFe2M12/xFe3M3 pattern. */
+
+    const double DG22p=12000.0, W12=9000.0, W12p=13000.0, W13=16000.0, W14=0.0,
+                 W22p=38354.0,  W23=9000.0, W2p3=13000.0, W24=9000.0,  W2p4=13000.0, W34=0.0;
+
+    /* --- embedded 1D solve for the order parameter s ---
+       Melilite's W22p term produces genuine order-disorder instability
+       (negative-curvature regions in s), where plain damped Newton can
+       cycle forever between an interior candidate and a clamp boundary
+       instead of converging (verified empirically via a standalone FD
+       gradient check, scratchpad verify_mel_grad.c). Bisection on the
+       sign of dG/ds is unconditionally convergent for a bounded 1D root,
+       and naturally falls back to a boundary solution when dG/ds doesn't
+       change sign anywhere across the box (G monotonic in s throughout,
+       so the constrained optimum is a boundary, not an interior root). */
+    double eps_s = 1.0e-10;
+    double s_lo = fmax(fmax(r0-(1.0-eps_s), eps_s-r2), 2.0*eps_s-r0);
+    double s_hi = fmin(fmin(r0-eps_s, (1.0-eps_s)-r2), 2.0*(1.0-eps_s)-r0);
+
+    double dgds_lo, dgds_hi;
+    {
+        double xAl3T1 = r0-s_lo, xSi4T1 = r2+s_lo, xAl3T2 = 0.5*(r0+s_lo), xSi4T2 = 1.0-0.5*(r0+s_lo);
+        dgds_lo = Rgas*T*(-log(xAl3T1)+log(xSi4T1)+log(xAl3T2)-log(xSi4T2))
+                + (DG22p+W12p-W12) - 2.0*W22p*s_lo + (W22p-W12p+W12)*r0
+                + (W2p3-W23-W12p+W12)*r1 + (W2p4-W24-W12p+W12)*r2;
+    }
+    {
+        double xAl3T1 = r0-s_hi, xSi4T1 = r2+s_hi, xAl3T2 = 0.5*(r0+s_hi), xSi4T2 = 1.0-0.5*(r0+s_hi);
+        dgds_hi = Rgas*T*(-log(xAl3T1)+log(xSi4T1)+log(xAl3T2)-log(xSi4T2))
+                + (DG22p+W12p-W12) - 2.0*W22p*s_hi + (W22p-W12p+W12)*r0
+                + (W2p3-W23-W12p+W12)*r1 + (W2p4-W24-W12p+W12)*r2;
+    }
+
+    double s;
+    if (dgds_lo > 0.0 && dgds_hi > 0.0){
+        s = s_lo;
+    }
+    else if (dgds_lo < 0.0 && dgds_hi < 0.0){
+        s = s_hi;
+    }
+    else {
+        double a = s_lo, b = s_hi, fa = dgds_lo;
+        for (int it = 0; it < 80; it++){
+            double mid = 0.5*(a+b);
+            double xAl3T1 = r0-mid, xSi4T1 = r2+mid, xAl3T2 = 0.5*(r0+mid), xSi4T2 = 1.0-0.5*(r0+mid);
+            double fm = Rgas*T*(-log(xAl3T1)+log(xSi4T1)+log(xAl3T2)-log(xSi4T2))
+                      + (DG22p+W12p-W12) - 2.0*W22p*mid + (W22p-W12p+W12)*r0
+                      + (W2p3-W23-W12p+W12)*r1 + (W2p4-W24-W12p+W12)*r2;
+            if ((fa > 0.0) == (fm > 0.0)){ a = mid; fa = fm; }
+            else { b = mid; }
+            if (b-a < 1.0e-14){ break; }
+        }
+        s = 0.5*(a+b);
+    }
+
+    /* xNaOct/xFe2T1 get the same +d_em guard as obj_gh_hb's xFe2M12/xFe3M3:
+       if na-melilite (index 3) or fak (index 2) is boiled out, bounds_ref
+       pins p[3]/p[2] to exactly 0, and without the guard log(xNaOct)/
+       log(xFe2T1) would evaluate log(0)=NaN. xCaOct=1-r2 needs no guard
+       (it only approaches 0 as r2->1, a legitimate composition, not a
+       boiled-out one). geh (index 1, r0) has no such guard here: its
+       boil-out would force r0=0, which (see the s_lo/s_hi formulas above)
+       makes the T1/T2-site order-parameter's own valid range degenerate/
+       empty - a genuinely harder case than a simple additive guard can
+       fix, left as a documented limitation like leucite's boil-out gap.
+       In practice all of ak/geh/fak/na-melilite's defining oxides (CaO,
+       MgO, FeO, Al2O3, SiO2, Na2O) are on gh's "always floored to >=1e-4"
+       list (toolkit.c), so none of these boil-out branches currently
+       trigger for any reachable bulk composition - this guard is
+       defensive/for-correctness, matching the established pattern,
+       not a fix for an observed failure. */
+    double xCaOct = 1.0-r2, xNaOct = r2 + d->d_em[3], xFe2T1 = r1 + d->d_em[2];
+    double xAl3T1 = r0-s, xSi4T1 = r2+s, xAl3T2 = 0.5*(r0+s), xSi4T2 = 1.0-0.5*(r0+s);
+
+    double H = (DG22p+W12p-W12)*s + W12*r0*(1.0-r0) - W22p*s*s + W13*r1*(1.0-r1)
+             + (W22p-W12p+W12)*r0*s + (W23-W12-W13)*r0*r1 + (W2p3-W23-W12p+W12)*r1*s
+             + W14*r2*(1.0-r2) + (W24-W14-W12)*r0*r2 + (W34-W14-W13)*r1*r2
+             + (W2p4-W24-W12p+W12)*r2*s;
+
+    double S = -Rgas*( 2.0*xCaOct*log(xCaOct) + 2.0*xNaOct*log(xNaOct)
+                      + xMg2T1*log(xMg2T1) + xFe2T1*log(xFe2T1)
+                      + xAl3T1*log(xAl3T1) + xSi4T1*log(xSi4T1)
+                      + 2.0*xAl3T2*log(xAl3T2) + 2.0*xSi4T2*log(xSi4T2) );
+
+    double Gex = H - T*S;   /* V=0 identically for this phase */
+
+    /* NOTE: xMELTS' own DGDR0/DGDR1/DGDR2 macros (reduced r-basis) carry a
+       "-log(xMg2T1)" term, valid there because xMg2T1=1-r0-r1-r2 is
+       algebraically DEPENDENT on r0,r1,r2 in that basis. gh instead treats
+       xMg2T1=p[0] as its own independent NLopt variable (matching every
+       other gh phase's direct p=x convention, Sigma(p)=1 enforced
+       externally by NLopt) - so that log() term does not belong in these
+       partials, and dropping it removes a hidden "-1" that used to cancel
+       a "+1" elsewhere in the reduced-basis derivation; each partial needs
+       an explicit "+1" (i.e. +Rgas*T) to compensate. Correspondingly
+       dGex[0] is no longer 0: Gex genuinely depends on p[0] through the
+       entropy term. Verified against central finite differences (see
+       scratchpad verify_mel_grad.c). */
+    double dGdr0 = Rgas*T*(log(xAl3T1)+log(xAl3T2)-log(xSi4T2)+1.0)
+                 + W12*(1.0-2.0*r0) + (W22p-W12p+W12)*s
+                 + (W23-W12-W13)*r1 + (W24-W14-W12)*r2;
+    double dGdr1 = Rgas*T*(log(xFe2T1)+1.0)
+                 + W13*(1.0-2.0*r1) + (W23-W12-W13)*r0
+                 + (W2p3-W23-W12p+W12)*s + (W34-W14-W13)*r2;
+    double dGdr2 = Rgas*T*(-2.0*log(xCaOct)+2.0*log(xNaOct)+log(xSi4T1)+1.0)
+                 + W14*(1.0-2.0*r2) + (W24-W14-W12)*r0
+                 + (W34-W14-W13)*r1 + (W2p4-W24-W12p+W12)*s;
+
+    double dGex[4];
+    dGex[0] = Rgas*T*(log(xMg2T1)+1.0);
+    dGex[1] = dGdr0;
+    dGex[2] = dGdr1;
+    dGex[3] = dGdr2;
+
+    for (int i = 0; i < 4; i++){
+        double mu = Gex;
+        for (int k = 0; k < 4; k++){
+            double delta_ik = (i==k) ? 1.0 : 0.0;
+            mu += (delta_ik - p[k])*dGex[k];
+        }
+        mu_Gex[i] = mu/1000.0;
+        d->sf[i]  = p[i];
+    }
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 4; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = 0.0;
+    for (int i = 0; i < 4; i++){ d->df_raw += (mu_Gex[i] + gb[i])*p[i]; }
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        for (int i = 0; i < 4; i++){
+            grad[i] = (mu_Gex[i] + gb[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+        }
+    }
+    return d->df;
+}
+
 void GH_SS_objective_init_function(    obj_type            *SS_objective,
                                         global_variable      gv                  ){
     for (int iss = 0; iss < gv.len_ss; iss++){
@@ -453,6 +794,15 @@ void GH_SS_objective_init_function(    obj_type            *SS_objective,
         }
         else if (strcmp( gv.SS_list[iss], "g") == 0 ){
             SS_objective[iss] = obj_gh_g;
+        }
+        else if (strcmp( gv.SS_list[iss], "hb") == 0 ){
+            SS_objective[iss] = obj_gh_hb;
+        }
+        else if (strcmp( gv.SS_list[iss], "lc") == 0 ){
+            SS_objective[iss] = obj_gh_lc;
+        }
+        else if (strcmp( gv.SS_list[iss], "mel") == 0 ){
+            SS_objective[iss] = obj_gh_mel;
         }
     }
 }
@@ -474,6 +824,15 @@ void GH_PC_init(                       PC_type             *PC_read,
         }
         else if (strcmp( gv.SS_list[iss], "g") == 0 ){
             PC_read[iss] = obj_gh_g;
+        }
+        else if (strcmp( gv.SS_list[iss], "hb") == 0 ){
+            PC_read[iss] = obj_gh_hb;
+        }
+        else if (strcmp( gv.SS_list[iss], "lc") == 0 ){
+            PC_read[iss] = obj_gh_lc;
+        }
+        else if (strcmp( gv.SS_list[iss], "mel") == 0 ){
+            PC_read[iss] = obj_gh_mel;
         }
     }
 }
@@ -502,7 +861,10 @@ void GH_P2X_init(                      P2X_type            *P2X_read,
             strcmp( gv.SS_list[iss], "ol")  == 0 ||
             strcmp( gv.SS_list[iss], "fsp") == 0 ||
             strcmp( gv.SS_list[iss], "bi")  == 0 ||
-            strcmp( gv.SS_list[iss], "g")   == 0){
+            strcmp( gv.SS_list[iss], "g")   == 0 ||
+            strcmp( gv.SS_list[iss], "hb")  == 0 ||
+            strcmp( gv.SS_list[iss], "lc")  == 0 ||
+            strcmp( gv.SS_list[iss], "mel") == 0){
             P2X_read[iss] = p2x_gh_generic;
         }
     }

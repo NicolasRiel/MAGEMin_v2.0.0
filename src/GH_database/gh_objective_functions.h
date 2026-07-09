@@ -17,6 +17,9 @@ double obj_gh_ol(unsigned n, const double *x, double *grad, void *SS_ref_db);
 double obj_gh_fsp(unsigned n, const double *x, double *grad, void *SS_ref_db);
 double obj_gh_bi(unsigned n, const double *x, double *grad, void *SS_ref_db);
 double obj_gh_g(unsigned n, const double *x, double *grad, void *SS_ref_db);
+double obj_gh_hb(unsigned n, const double *x, double *grad, void *SS_ref_db);
+double obj_gh_lc(unsigned n, const double *x, double *grad, void *SS_ref_db);
+double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db);
 
 void GH_SS_objective_init_function(    obj_type            *SS_objective,
                                         global_variable      gv                  );

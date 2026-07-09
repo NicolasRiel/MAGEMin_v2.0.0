@@ -47,6 +47,7 @@ static const PP_db_gh arr_pp_db_gh[GH_N_PP] = {
         -2586091.0, 95.930, 4.983,
         { 256.73, -18.872E2, -29.774E5, 25.096E7, 0.0, 0.0, 0.0, 0.0 },
         { -0.753E-6, 0.0, 13.431E-6, 0.0 } },
+        
     /* andalusite - Al2SiO5 = Al2O3 + SiO2. xMELTS has no data for this
        (not modeled by MELTS itself); H/S/V/Cp ported from Theriak-Domino's
        JUN92d.bs Berman (1988) database (../theriak-domino/src/JUN92d.bs),
@@ -180,6 +181,72 @@ static const PP_db_gh arr_pp_db_gh[GH_N_PP] = {
         -5976740.0, 293.157, 14.087,
         { 651.49, -38.732E2, -185.232E5, 274.247E7, 0.0, 0.0, 0.0, 0.0 },
         { -1.717E-6, 4.295E-12, 33.527E-6, 0.0 } },
+
+    /* --- hornblende endmembers (pargasite-ferropargasite-magnesiohastingsite) --- */
+    /* pargasite - NaCa2Mg4AlAl2Si6O22(OH)2 = 6 SiO2 + 1.5 Al2O3 + 2 CaO + 4 MgO + 0.5 Na2O + H2O */
+    { "parg", { 6.0,1.5,2.0,4.0,0,0,0.5,0,0,0,0,1.0,0,0,0,0 },
+        -12621554.82, 669.44, 27.35,
+        { 1267.25, -6654.34, -30378700.0, 3913530000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -1.392E-6, 3.481E-12, 24.374E-6, 98.338E-10 } },
+    /* ferropargasite - NaCa2Fe4AlAl2Si6O22(OH)2 = 6 SiO2 + 1.5 Al2O3 + 2 CaO + 4 FeO + 0.5 Na2O + H2O */
+    { "fparg", { 6.0,1.5,2.0,0,4.0,0,0.5,0,0,0,0,1.0,0,0,0,0 },
+        -11224859.39, 776.132, 27.989,
+        { 1342.61, -8348.62, -24760400.0, 3485070000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -1.392E-6, 3.481E-12, 24.374E-6, 98.338E-10 } },
+    /* magnesiohastingsite - NaCa2Mg4FeAl2Si6O22(OH)2 (Fe3+) = 6 SiO2 + Al2O3 + 2 CaO + 4 MgO + FeO + 0.5 O + 0.5 Na2O + H2O */
+    { "mhst", { 6.0,1.0,2.0,4.0,1.0,0,0.5,0,0.5,0,0,1.0,0,0,0,0 },
+        -12166501.59, 685.3392, 27.38,
+        { 1273.66, -6716.06, -28033100.0, 3506970000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -1.392E-6, 3.481E-12, 24.374E-6, 98.338E-10 } },
+
+    /* --- leucite endmembers (leucite-analcime-na-leucite) --- */
+    /* leucite - KAlSi2O6 = 2 SiO2 + 0.5 Al2O3 + 0.5 K2O */
+    { "lc", { 2.0,0.5,0,0,0,0.5,0,0,0,0,0,0,0,0,0,0 },
+        -3010279.63, 205.846, 8.8390,
+        { 271.14, -944.1, -7857200.0, 959200000.0, 955.0, 256.0, -0.09731, 0.0003373 },
+        { -1.5568254E-6, 1.2739E-12, 12.5167877E-6, 0.0 } },
+    /* analcime - NaAlSi2O5(OH)2 = 2 SiO2 + 0.5 Al2O3 + 0.5 Na2O + H2O */
+    { "anl", { 2.0,0.5,0,0,0,0,0.5,0,0,0,0,1.0,0,0,0,0 },
+        -3325900.0, 228.10, 9.71,
+        { 571.83, -7188.7, 0.0, 1493060000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -1.5568254E-6, 1.2739E-12, 12.5167877E-6, 0.0 } },
+    /* na-leucite - NaAlSi2O6 = 2 SiO2 + 0.5 Al2O3 + 0.5 Na2O */
+    { "nlc", { 2.0,0.5,0,0,0,0,0.5,0,0,0,0,0,0,0,0,0 },
+        -3001975.55, 165.74, 8.91,
+        { 401.27, -4248.0, 0.0, 216300000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -1.5568254E-6, 1.2739E-12, 12.5167877E-6, 0.0 } },
+
+    /* --- melilite endmembers (akermanite-gehlenite-iron_akermanite-soda_melilite) ---
+       iron-akermanite and soda-melilite are reciprocal endmembers in real xMELTS
+       (gibbs.c): iron-akermanite = "ak0" (own-row Ca2MgSi2O7-shaped energy, NOT
+       the same H298 as "ak" below) + 0.5*fa - 0.5*fo; soda-melilite = "geh0"
+       (own-row Ca2Al2SiO7-shaped energy, NOT the same H298 as "geh" below) +
+       2*ab - 2*an. fo/fa/ab/an already exist in this table (ol/fsp) with H/S/V/Cp/EOS
+       verified byte-identical to what gibbs.c uses for this same reaction, so the
+       reaction is applied at RUNTIME in G_SS_gh_mel_function (gh_gss_function.c),
+       reusing those 4 existing get_em_data lookups rather than duplicating them. */
+    /* akermanite - Ca2MgSi2O7 = 2 SiO2 + 2 CaO + MgO */
+    { "ak", { 2.0,0,2.0,1.0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -3855541.0, 212.000, 9.252,
+        { 387.06, -2938.8, 0.0, -40790000.0, 358.0, 452.0, 0.0, 0.0 },
+        { -0.785E-6, 0.0, 25.011E-6, 67.224E-10 } },
+    /* gehlenite - Ca2Al2SiO7 = 1 SiO2 + 1 Al2O3 + 2 CaO */
+    { "geh", { 1.0,1.0,2.0,0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -3969258.0, 198.600, 9.033,
+        { 373.09, -2276.8, -4778500.0, 477910000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.996E-6, 2.488E-12, 24.926E-6, 5.664E-10 } },
+    /* iron-akermanite "own row" (Ca2MgSi2O7-shaped, pre-reaction) - same Comp/Cp/EOS as
+       "ak" above, distinct H298 (xMELTS' own two separate calibration constants) */
+    { "ak0", { 2.0,0,2.0,1.0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -3856441.0, 212.000, 9.252,
+        { 387.06, -2938.8, 0.0, -40790000.0, 358.0, 452.0, 0.0, 0.0 },
+        { -0.785E-6, 0.0, 25.011E-6, 67.224E-10 } },
+    /* soda-melilite "own row" (Ca2Al2SiO7-shaped, pre-reaction) - same Comp/Cp/EOS as
+       "geh" above, distinct H298 */
+    { "geh0", { 1.0,1.0,2.0,0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -3981458.0, 198.600, 9.033,
+        { 373.09, -2276.8, -4778500.0, 477910000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.996E-6, 2.488E-12, 24.926E-6, 5.664E-10 } },
 };
 
 /**

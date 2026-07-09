@@ -82,7 +82,7 @@
     PP_db_gh_beta Access_GH_SiO2_beta_DB(int id);
     int           GH_find_SiO2_beta_id(char *name);
 
-    #define GH_N_PP 27
+    #define GH_N_PP 37
 
     PP_db_gh Access_GH_PP_DB(int id);
     int      GH_find_PP_id(char *name);
