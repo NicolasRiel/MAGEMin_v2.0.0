@@ -1,0 +1,111 @@
+/*@ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ **
+ **   Project      : MAGEMin
+ **   License      : GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
+ **   Developers   : Nicolas Riel, Boris Kaus
+ **   Organization : Institute of Geosciences, Johannes-Gutenberg University, Mainz
+ **   Contact      : nriel[at]uni-mainz.de, kaus[at]uni-mainz.de
+ **
+ ** ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ @*/
+#include "GH_endmembers.h"
+
+/**
+    Stage-A Ghiorso/MELTS silicate-liquid basis species (proof of concept).
+
+    Data ported verbatim from xMELTS-master/includes/liq_struct_data.h
+    (xMeltsLiquid[]). Of the 19 real MELTS liquid basis species, NiSi0.5O2,
+    CoSi0.5O2, Ca3(PO4)2 and F2O-1 are omitted here because MAGEMin's shared
+    16-oxide axis table (TC_database/TC_init_database.c, oxide_info) has no
+    NiO/CoO/P2O5/F axis to map them onto; these are minor components in
+    typical bulk-rock compositions and can be re-added later alongside the
+    corresponding oxide axes. SO3 and Cl2O-1 are also omitted: they have no
+    intrinsic thermodynamic data anywhere in xMELTS either (all-zero
+    placeholders even in the original source) and no other real reference
+    state (EOS or literature) was found to replace them with, unlike H2O
+    and CO2 (see below). The CaCO3 ordering species (paired with the
+    CO2 <-> CaSiO3+SiO2 speciation reaction) is deferred to a later stage.
+
+    Comp[] axis order (identical to TC_database's oxide_info table):
+    0 SiO2, 1 Al2O3, 2 CaO, 3 MgO, 4 FeO, 5 K2O, 6 Na2O, 7 TiO2, 8 O,
+    9 MnO, 10 Cr2O3, 11 H2O, 12 CO2 (13 S, 14 Cl, 15 ecp unused - gv.len_ox
+    for "gh" is 13, so these columns are never read)
+
+    Fe2O3 is expressed via the shared "O" excess-oxygen axis (the same
+    convention TC uses for ferric iron): Fe2O3 = 2 FeO + O.
+
+    H2O and CO2's H/S/Cp/EOS fields below are unused placeholders: unlike
+    the other components (built from a solid reference + fusion + Kress
+    liquid-volume EOS, see GH_gem_function.c), their standard-state G is
+    computed directly from a real Pitzer & Sterner (1994) fluid EOS
+    (GH_fluid_eos.c), which needs no per-endmember calibration data of its
+    own beyond (T,P).
+**/
+static const EM_db_gh arr_em_db_gh_liq[13] = {
+    /* SiO2 */
+    { "SiO2", { 1.0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -906377.0, 46.029, 2.730,
+        { 83.51, -374.7, -2.4554e6, 2.8007e8, 0.0, 0.0, 0.0, 0.0 },
+        2.690, { 0.0, -1.89e-5, 1.3e-8, 3.6e-10 }, 1999.0, 4.46, 82.6 },
+    /* TiO2 */
+    { "TiO2", { 0,0,0,0,0,0,0, 1.0, 0,0,0,0,0,0,0,0 },
+        -944750.0, 50.460, 1.882,
+        { 77.84, 0.0, -3.3678e6, 4.0294e8, 0.0, 0.0, 0.0, 0.0 },
+        2.316, { 7.246e-4, -2.310e-5, 0.0, 5.0e-10 }, 1870.0, 35.824, 109.2 },
+    /* Al2O3 */
+    { "Al2O3", { 0, 1.0, 0,0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -1675700.0, 50.82, 0.0,
+        { 155.02, -828.4, -3.8614e6, 4.0908e8, 0.0, 0.0, 0.0, 0.0 },
+        3.711, { 2.62e-4, -2.26e-5, 2.7e-8, 4.0e-10 }, 2319.65, 48.61, 170.3 },
+    /* Fe2O3 = 2 FeO + O */
+    { "Fe2O3", { 0,0,0,0, 2.0, 0,0,0, 1.0, 0,0,0,0,0,0,0 },
+        -822000.0, 87.40, 3.027,
+        { 146.86, 0.0, -5.5768e6, 5.2563e8, 955.0, 1287.0, -7.403e-2, 27.921e-5 },
+        4.213, { 9.09e-4, -2.53e-5, 3.1e-8, 4.4e-10 }, 1895.0, 60.41, 240.9 },
+    /* MgCr2O4 = MgO + Cr2O3 */
+    { "MgCr2O4", { 0,0,0, 1.0, 0,0,0,0,0,0, 1.0, 0,0,0,0,0 },
+        -1783640.0, 106.02, 4.3560,
+        { 201.981, -551.9, -5.7844e6, 5.7729e8, 0.0, 0.0, 0.0, 0.0 },
+        5.358, { 11.71e-4, -2.26e-5, 1.8e-8, 4.67e-10 }, 2673.15, 73.22, 335.1 },
+    /* Fe2SiO4 = 2 FeO + SiO2 */
+    { "Fe2SiO4", { 1.0, 0,0,0, 2.0, 0,0,0,0,0,0,0,0,0,0,0 },
+        -1479360.0, 150.930, 0.0,
+        { 248.93, -1923.9, 0.0, -1.391e8, 0.0, 0.0, 0.0, 0.0 },
+        5.420, { 5.84e-4, -2.79e-5, -2.3e-8, 14.6e-10 }, 1490.0, 59.9, 240.2 },
+    /* MnSi0.5O2 = MnO + 0.5 SiO2 */
+    { "MnSi0.5O2", { 0.5, 0,0,0,0,0,0,0,0, 1.0, 0,0,0,0,0,0 },
+        -866000.0, 77.950, 2.4445,
+        { 109.945, -635.5, -1.0248e6, 8.826e7, 0.0, 0.0, 0.0, 0.0 },
+        2.840, { 2.92e-4, -1.395e-5, -1.15e-8, 7.3e-10 }, 1620.0, 27.6, 121.6 },
+    /* Mg2SiO4 = 2 MgO + SiO2 */
+    { "Mg2SiO4", { 1.0, 0,0, 2.0, 0,0,0,0,0,0,0,0,0,0,0,0 },
+        -2174420.0, 94.010, 0.0,
+        { 238.64, -2001.3, 0.0, -1.1624e8, 0.0, 0.0, 0.0, 0.0 },
+        4.980, { 5.24e-4, -1.35e-5, -1.3e-8, 4.14e-10 }, 2163.0, 57.2, 271.0 },
+    /* CaSiO3 = CaO + SiO2 */
+    { "CaSiO3", { 1.0, 0, 1.0, 0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -1627427.0, 85.279, 4.016,
+        { 141.16, -417.2, -5.8576e6, 9.4074e8, 0.0, 0.0, 0.0, 0.0 },
+        4.347, { 2.92e-4, -1.55e-5, -1.6e-8, 3.89e-10 }, 1817.0, 31.5, 172.4 },
+    /* Na2SiO3 = Na2O + SiO2 */
+    { "Na2SiO3", { 1.0, 0,0,0,0,0, 1.0, 0,0,0,0,0,0,0,0,0 },
+        -1561426.96, 113.84664, 0.0,
+        { 234.77, -2218.9, 0.0, 1.353e8, 0.0, 0.0, 0.0, 0.0 },
+        5.568, { 7.41e-4, -4.29e-5, -5.3e-8, 8.4e-10 }, 1361.0, 38.34, 180.2 },
+    /* KAlSiO4 = 0.5 K2O + 0.5 Al2O3 + SiO2 */
+    { "KAlSiO4", { 1.0, 0.5, 0,0,0, 0.5, 0,0,0,0,0,0,0,0,0,0 },
+        -2111813.55, 133.9653, 5.989,
+        { 186.0, 0.0, -1.31067e7, 2.13893e9, 800.15, 1154.0, -7.096454e-2, 21.682e-5 },
+        6.8375, { 7.265e-4, -6.395e-5, -4.6e-8, 12.1e-10 }, 2023.15, 24.5, 217.0 },
+    /* CO2 - G computed via GH_pitzer_sterner_G(), not this placeholder data */
+    { "CO2", { 0,0,0,0,0,0,0,0,0,0,0,0, 1.0, 0,0,0 },
+        0.0, 0.0, 0.0, { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 },
+        0.0, { 0.0, 0.0, 0.0, 0.0 }, 1000.0, 0.0, 0.0 },
+    /* H2O - G computed via GH_pitzer_sterner_G(), not this placeholder data */
+    { "H2O", { 0,0,0,0,0,0,0,0,0,0,0, 1.0, 0,0,0,0 },
+        0.0, 0.0, 0.0, { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 },
+        0.0, { 0.0, 0.0, 0.0, 0.0 }, 1000.0, 0.0, 0.0 },
+};
+
+EM_db_gh Access_GH_EM_DB(int id){
+    return arr_em_db_gh_liq[id];
+}

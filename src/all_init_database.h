@@ -17,4 +17,7 @@
     /* This includes the initializing routine for Stixrude & Lithgow-Bertelloni database */
     #include "./SB_database/SB_init_database.h"
 
+    /* This includes the initializing routine for the Ghiorso/MELTS database */
+    #include "./GH_database/GH_init_database.h"
+
 #endif

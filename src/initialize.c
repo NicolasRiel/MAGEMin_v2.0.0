@@ -29,6 +29,11 @@ global_variable global_variable_init( 	global_variable  	 gv,
 		gv 	=	global_variable_SB_init( 	gv,
 											z_b 	);
 	}
+	else if (strcmp(gv.research_group, "gh") 	== 0 ){
+	/* here we initialize MAGEMin using the Ghiorso/MELTS liquid model */
+		gv 	=	global_variable_GH_init( 	gv,
+											z_b 	);
+	}
 	else{
 		printf(" wrong group, fix group name\n");
 	}
@@ -65,8 +70,24 @@ char** get_EM_DB_names_sb(global_variable gv) {
     for ( i = 0; i < n_em_db; i++){
         names[i] = malloc(20 * sizeof(char));
     }
-    for ( i = 0; i < n_em_db; i++){	
+    for ( i = 0; i < n_em_db; i++){
         EM_return = Access_SB_EM_DB(i, gv.EM_dataset);
+        strcpy(names[i],EM_return.Name);
+    }
+    return names;
+}
+
+char** get_EM_DB_names_gh(global_variable gv) {
+
+    EM_db_gh EM_return;
+    int i, n_em_db;
+    n_em_db = gv.n_em_db;
+    char ** names = malloc((n_em_db+1) * sizeof(char*));
+    for ( i = 0; i < n_em_db; i++){
+        names[i] = malloc(20 * sizeof(char));
+    }
+    for ( i = 0; i < n_em_db; i++){
+        EM_return = Access_GH_EM_DB(i);
         strcpy(names[i],EM_return.Name);
     }
     return names;
@@ -122,7 +143,7 @@ global_variable global_variable_alloc( bulk_info  *z_b ){
 	}
 
 	strcpy(gv.outpath,"./output/");				/** define the outpath to save logs and final results file	 						*/
-	strcpy(gv.version,"2.0.0 01/07/2026]");		/** MAGEMin version 																*/
+	strcpy(gv.version,"2.0.0 14/07/2026]");		/** MAGEMin version 																*/
 
 	/* generate parameters        		*/
 	strcpy(gv.buffer,"none");
@@ -141,6 +162,8 @@ global_variable global_variable_alloc( bulk_info  *z_b ){
 	gv.mpSp 			= 0;					/** 0: Sp LT, 1: Mt1													*/
 	gv.mpIlm 			= 0;					/** 0: Ilmm, 1: Ilm 																*/
 	gv.ig_ed 			= 0;					/** 0: flag to activate edited version of bi and amp for igneous database 			*/
+	gv.precond 			= 1;					/** 1: precondition (Ruiz-scale) the stoichiometric matrix before inverseMatrix's LU inversion, 0: preconditioning off 	*/
+	gv.BR_rel_norm 		= 1;					/** 1: PGE mass-residual convergence norm is per-oxide-relative (normalized by bulk abundance), 0: old absolute norm 	*/
 
 	// gv.calc_seismic_cor = 1;					/** compute seismic velocity corrections (melt and anelastic)						*/
 	// gv.melt_pressure 	= 0.0;				/** [kbar] pressure shift in case of modelling melt pressure 						*/
@@ -413,7 +436,15 @@ SS_ref G_SS_init_EM_function(		SS_init_type		*SS_init,
 	
 	/* initialize fractions flags and cycle arrays with zeros */
 	SS_ref_db.ss_flags      = malloc (gv.n_flags  * sizeof(int));
-    SS_ref_db.solvus_id     = malloc ((gv.len_ss*4)   * sizeof (int)  	);
+    /* solvus_id is indexed by gv.n_solvi[ph_id], which counts how many
+       considered-phase instances (out of gv.len_cp) currently map to this
+       solution phase - in the worst case (a database with few distinct
+       solution phases, e.g. all considered phases being instances of the
+       same one) that can reach gv.len_cp, so size against gv.max_n_cp
+       (the hard upper bound on len_cp) rather than gv.len_ss*4, which
+       silently assumed every phase has several distinct solution phases
+       to spread solvus instances across. */
+    SS_ref_db.solvus_id     = malloc ((gv.max_n_cp)   * sizeof (int)  	);
 
 	/* dynamic memory allocation of data to send to NLopt */
 	SS_ref_db.bounds 	= malloc (n_xeos * sizeof (double*)  ); 

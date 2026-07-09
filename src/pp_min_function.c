@@ -1517,6 +1517,91 @@ global_variable init_em_db_sb(	int 				EM_database,
 		}
 		if (gv.verbose==1){
 			printf("\n");
-		}		
+		}
+		return gv;
+};
+
+/**
+    Initialize pure-phase database for the "gh" (Ghiorso/MELTS) research
+    group: a handful of common rock-forming pure phases ported from xMELTS'
+    own solid-phase database (quartz, cristobalite, tridymite, corundum,
+    sillimanite, rutile, sphene) plus O2 and H2O, all resolved directly by
+    GH_G_EM_function (see GH_PP_endmembers.h). O2 is evaluated at a fixed
+    1 bar reference pressure regardless of system pressure, mirroring
+    init_em_db/init_em_db_sb's convention for the same fO2-buffer phase.
+*/
+global_variable init_em_db_gh(	int 				EM_database,
+								bulk_info 			z_b,
+								global_variable 	gv,
+								PP_ref 			   *PP_ref_db
+){
+		char state[] = "equilibrium";
+		int sum_zel;
+		for (int i = 0; i < gv.len_pp; i++){
+			if (strcmp( gv.PP_list[i], "O2") == 0){
+				PP_ref_db[i] = G_EM_function(	gv.research_group,
+												gv.EM_dataset,
+												gv.len_ox,
+												z_b.id,
+												z_b.bulk_rock,
+												z_b.apo,
+												0.001,				//for computing oxygen fugacity pressure = 1bar, 0.001 kbar
+												z_b.T,
+												gv.PP_list[i],
+												state					);
+			}
+			else{
+				PP_ref_db[i] = G_EM_function(	gv.research_group,
+												gv.EM_dataset,
+												gv.len_ox,
+												z_b.id,
+												z_b.bulk_rock,
+												z_b.apo,
+												z_b.P,
+												z_b.T,
+												gv.PP_list[i],
+												state					);
+			}
+
+			sum_zel = 0;
+			for (int j = 0; j < z_b.zEl_val; j++){
+				/* If pure-phase contains an oxide absent in the bulk-rock then do not take it into account */
+				if (PP_ref_db[i].Comp[z_b.zEl_array[j]] != 0.0){
+					sum_zel += 1;
+				}
+			}
+
+			/* If pure-phase contains an oxide absent in the bulk-rock then do not take it into account
+			   (mirrors init_em_db's identical check - without it, a phase needing a zero-bulk oxide
+			   (e.g. calcite/siderite/dolomite needing CO2) stays permanently active, and since the
+			   reduced LP/PGE oxide axis set drops zero-bulk oxides entirely, its missing requirement
+			   is never checked against anything, so it can appear spuriously stable) */
+			if (sum_zel != 0){
+				gv.pp_flags[i][0] = 0;
+				gv.pp_flags[i][1] = 0;
+				gv.pp_flags[i][2] = 0;
+				gv.pp_flags[i][3] = 1;
+			}
+			else{
+				if (gv.pp_flags[i][0] != 0){ 			//here  we check if the pure phase is deactivated from the start (O2 for instance)
+					gv.pp_flags[i][0] = 1;
+					gv.pp_flags[i][1] = 0;
+					gv.pp_flags[i][2] = 1;
+					gv.pp_flags[i][3] = 0;
+				}
+			}
+
+			if (gv.verbose==1){
+				printf("\n %4s:  %+10f %+10f\n",gv.PP_list[i],PP_ref_db[i].gbase, PP_ref_db[i].factor);
+				printf(" S   A   C   M   F   K   N   T   O   Mn  Cr  H   CO2\n");
+				for (int j = 0; j < gv.len_ox; j++){
+					printf(" %.1f",PP_ref_db[i].Comp[j]);
+				}
+				printf("\n");
+			}
+		}
+		if (gv.verbose==1){
+			printf("\n");
+		}
 		return gv;
 };

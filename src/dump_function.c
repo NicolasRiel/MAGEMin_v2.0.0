@@ -240,6 +240,12 @@ void mSS_output_struct(			global_variable 	 gv,
 		SB_PC_init(	    		PC_read,
 								gv			);
 	}
+	else if (strcmp(gv.research_group, "gh") 	== 0 ){
+		GH_PC_init(	    		PC_read,
+								gv			);
+		GH_P2X_init(	    	P2X_read,
+								gv			);
+	}
 
 	int nox  = gv.len_ox;
 	int i, j, k, m, n, em_id, ph_id, pc_id;
@@ -310,17 +316,24 @@ void mSS_output_struct(			global_variable 	 gv,
 			SS_ref_db[ph_id] = non_rot_hyperplane(	gv, 
 													SS_ref_db[ph_id]			);
 
-			if (strcmp(gv.research_group, "tc") 	== 0 ){									
+			if (strcmp(gv.research_group, "tc") 	== 0 ){
 				SS_ref_db[ph_id] = PC_function(				gv,
 															PC_read,
-															SS_ref_db[ph_id], 
+															SS_ref_db[ph_id],
 															z_b,
 															ph_id 		);
 			}
 			else if (strcmp(gv.research_group, "sb") 	== 0 ){
 				SS_ref_db[ph_id] = SB_PC_function(			gv,
 															PC_read,
-															SS_ref_db[ph_id], 
+															SS_ref_db[ph_id],
+															z_b,
+															ph_id 		);
+			}
+			else if (strcmp(gv.research_group, "gh") 	== 0 ){
+				SS_ref_db[ph_id] = GH_PC_function(			gv,
+															PC_read,
+															SS_ref_db[ph_id],
 															z_b,
 															ph_id 		);
 			}
@@ -378,17 +391,24 @@ void mSS_output_struct(			global_variable 	 gv,
 			SS_ref_db[ph_id] = non_rot_hyperplane(	gv, 
 													SS_ref_db[ph_id]			);
 
-			if (strcmp(gv.research_group, "tc") 	== 0 ){									
+			if (strcmp(gv.research_group, "tc") 	== 0 ){
 				SS_ref_db[ph_id] = PC_function(				gv,
 															PC_read,
-															SS_ref_db[ph_id], 
+															SS_ref_db[ph_id],
 															z_b,
 															ph_id 		);
 			}
 			else if (strcmp(gv.research_group, "sb") 	== 0 ){
 				SS_ref_db[ph_id] = SB_PC_function(			gv,
 															PC_read,
-															SS_ref_db[ph_id], 
+															SS_ref_db[ph_id],
+															z_b,
+															ph_id 		);
+			}
+			else if (strcmp(gv.research_group, "gh") 	== 0 ){
+				SS_ref_db[ph_id] = GH_PC_function(			gv,
+															PC_read,
+															SS_ref_db[ph_id],
 															z_b,
 															ph_id 		);
 			}

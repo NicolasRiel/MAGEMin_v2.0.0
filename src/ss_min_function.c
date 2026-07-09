@@ -67,6 +67,12 @@ SS_ref SS_UPDATE_function(		global_variable 	 gv,
 	else if (strcmp(gv.research_group, "sb") 	== 0 ){
 		SS_ref_db.sf_ok = 1;
 	}
+	else if (strcmp(gv.research_group, "gh") 	== 0 ){
+		/* "gh" is LP-only for now (no PGE/mu[] support yet, same reason "sb"
+		   forces LP-only - see SetupDatabase), so sf_ok is unused; keep it
+		   satisfied like "sb" rather than the "tc" PGE-oriented check.     */
+		SS_ref_db.sf_ok = 1;
+	}
 
 	return SS_ref_db;
 };
@@ -892,12 +898,34 @@ global_variable init_ss_db_sb(	int 				 EM_database,
 
 			SS_ref_db[i]    = G_SS_sb24_EM_function(	gv, 
 														SS_ref_db[i], 
-														gv.EM_dataset, 
-														z_b, 
+														gv.EM_dataset,
+														z_b,
 														gv.SS_list[i]		);
-											
+
 										/** can become a global variable instead */
 		}
+	}
+	return gv;
+};
+
+/**
+  initialize solution phase database for the "gh" (Ghiorso/MELTS) research group
+**/
+global_variable init_ss_db_gh(	int 				 EM_database,
+								bulk_info 	 		 z_b,
+								global_variable 	 gv,
+								SS_ref 				*SS_ref_db
+){
+	for (int i = 0; i < gv.len_ss; i++){
+		SS_ref_db[i].P  = z_b.P;
+		SS_ref_db[i].T  = z_b.T;
+		SS_ref_db[i].R  = 0.0083144;
+
+		SS_ref_db[i]    = G_SS_gh_EM_function(	gv,
+												SS_ref_db[i],
+												gv.EM_dataset,
+												z_b,
+												gv.SS_list[i]		);
 	}
 	return gv;
 };
