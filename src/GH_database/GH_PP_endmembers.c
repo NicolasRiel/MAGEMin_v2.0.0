@@ -3,6 +3,7 @@
  **   Project      : MAGEMin
  **   License      : GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
  **   Developers   : Nicolas Riel, Boris Kaus
+ **   Contributors : Nickolas B. Moccetti, Dominguez, H., Assunção J., Green E., Berlie N., and Rummel L.
  **   Organization : Institute of Geosciences, Johannes-Gutenberg University, Mainz
  **   Contact      : nriel[at]uni-mainz.de, kaus[at]uni-mainz.de
  **
@@ -247,6 +248,105 @@ static const PP_db_gh arr_pp_db_gh[GH_N_PP] = {
         -3981458.0, 198.600, 9.033,
         { 373.09, -2276.8, -4778500.0, 477910000.0, 0.0, 0.0, 0.0, 0.0 },
         { -0.996E-6, 2.488E-12, 24.926E-6, 5.664E-10 } },
+
+    /* --- cummingtonite endmembers (cummingtonite-grunerite, Fe-Mg amphibole) --- */
+    /* cummingtonite - Mg7Si8O22(OH)2 = 8 SiO2 + 7 MgO + H2O */
+    { "cumm", { 8.0,0,0,7.0,0,0,0,0,0,0,0,1.0,0,0,0,0 },
+        -12067517.0, 540.2587, 26.33,
+        { 1233.792, -7133.980, -22163800.0, 2333937490.0, 0.0, 0.0, 0.0, 0.0 },
+        { -1.1393847E-6, 0.0, 28.1048234E-6, 62.894E-10 } },
+    /* grunerite - Fe7Si8O22(OH)2 = 8 SiO2 + 7 FeO + H2O */
+    { "grun", { 8.0,0,0,0,7.0,0,0,0,0,0,0,1.0,0,0,0,0 },
+        -9623300.0, 725.0, 27.840,
+        { 1347.83, -9356.91, -20228480.0, 3039190000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -1.670299E-6, 8.68919E-12, 28.400E-6, 0.0 } },
+
+    /* --- spinel endmembers (chromite-hercynite-magnetite-spinel-ulvospinel) ---
+       Fe3+ tracked via gh's "1 FeO + 0.5 O per mole Fe3+" convention (matching
+       hb's mhst): magnetite Fe3O4 = 1 Fe2+ + 2 Fe3+ -> 3 FeO + 1.0 O. */
+    /* chromite - FeCr2O4 = FeO + Cr2O3 */
+    { "chr", { 0,0,0,0,1.0,0,0,0,0,0,1.0,0,0,0,0,0 },
+        -1445490.0, 142.676, 4.4010,
+        { 236.874, -1679.6, 0.0, -167650000.0, 0.0, 0.0, 0.0, 0.0 },
+        { 0.0, 0.0, 0.0, 0.0 } },
+    /* hercynite - FeAl2O4 = FeO + Al2O3 */
+    { "herc", { 0,1.0,0,0,1.0,0,0,0,0,0,0,0,0,0,0,0 },
+        -1947681.0, 115.362, 4.075018,
+        { 235.190, -1437.0, -4691300.0, 645640000.0, 0.0, 0.0, 0.0, 0.0 },
+        { 0.0, 0.0, 0.0, 0.0 } },
+    /* magnetite - Fe3O4 = 3 FeO + 1.0 O (2 of the 3 Fe are Fe3+) */
+    { "mt", { 0,0,0,0,3.0,0,0,0,1.0,0,0,0,0,0,0,0 },
+        -1117403.0, 146.114, 4.452,
+        { 207.93, 0.0, -7243300.0, 664360000.0, 848.0, 1565.0, -0.19502, 0.00061037 },
+        { -0.582E-6, 1.751E-12, 30.291E-6, 138.470E-10 } },
+    /* spinel (sensu stricto) - MgAl2O4 = MgO + Al2O3 */
+    { "spl", { 0,1.0,0,1.0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -2300313.0, 84.535, 3.977,
+        { 235.90, -1766.6, -1710400.0, 40620000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.489E-6, 0.0, 21.691E-6, 50.528E-10 } },
+    /* ulvospinel - Fe2TiO4 = 2 FeO + TiO2 */
+    { "usp", { 0,0,0,0,2.0,0,0,1.0,0,0,0,0,0,0,0,0 },
+        -1488500.0, 185.447, 4.682,
+        { 249.63, -1817.4, 0.0, -54530000.0, 0.0, 0.0, 0.0, 0.0 },
+        { 0.0, 0.0, 0.0, 0.0 } },
+
+    /* --- clinopyroxene/orthopyroxene endmembers (Di-Cen-Hed-CaTs(Al)-
+       CaTs(Fe3+)-Ess-Jd, Sack & Ghiorso 1993) - from xMELTS'
+       includes/sol_struct_data.h, same 7 endmembers shared by both the
+       "clinopyroxene" and "orthopyroxene" registry entries (see
+       obj_gh_cpx's header comment in gh_objective_functions.c for why
+       both phases use the identical energetics and endmember set).
+       Fe3+ tracked via gh's usual "1 FeO + 0.5 O per mole Fe3+" convention
+       (buffonite, essenite). alumino-buffonite/buffonite standard states
+       include xMELTS' own "Guess" H/S offset (no calorimetric data exists
+       for these rare accessory components) - a normal, accepted practice
+       for minor endmembers in an otherwise real, calibrated (Berman 1988/
+       Cosca & Peacor 1987) solution model, not a red flag like ortho-
+       oxide's fully-guessed W-parameters were. */
+    /* diopside - CaMgSi2O6 = 2 SiO2 + CaO + MgO */
+    { "di", { 2.0,0,1.0,1.0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -3200583.0, 142.5, 6.620,
+        { 305.41, -1604.9, -7166000.0, 921840000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.872E-6, 1.707E-12, 27.795E-6, 83.082E-10 } },
+    /* clinoenstatite - Mg2Si2O6 = 2 SiO2 + 2 MgO */
+    { "cen", { 2.0,0,0,2.0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -3086083.0, 135.164, 6.3279,
+        { 333.16, -2401.2, -4541200.0, 558300000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.749E-6, 0.447E-12, 24.656E-6, 74.670E-10 } },
+    /* hedenbergite - CaFeSi2O6 = 2 SiO2 + CaO + FeO */
+    { "hed", { 2.0,0,1.0,0,1.0,0,0,0,0,0,0,0,0,0,0,0 },
+        -2842221.0, 174.2, 6.7894,
+        { 307.89, -1597.3, -6992500.0, 935220000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.9925E-6, 1.4835E-12, 31.371E-6, 83.672E-10 } },
+    /* alumino-buffonite (Ca-Ti-Al Tschermak) - CaTi0.5Mg0.5AlSiO6 =
+       SiO2 + 0.5 Al2O3 + CaO + 0.5 MgO + 0.5 TiO2. H/S ref include
+       xMELTS' own "Guess" offset (H31=-8565.18 J, S31=0) - no
+       calorimetric data for this rare component (see header comment). */
+    { "cats", { 1.0,0.5,1.0,0.5,0,0,0,0.5,0,0,0,0,0,0,0,0 },
+        -3283848.18, 143.745, 6.356,
+        { 297.499, -1355.96, -6702190.0, 759082000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.870E-6, 2.171E-12, 22.250E-6, 52.863E-10 } },
+    /* buffonite (Ca-Ti-Fe3+ Tschermak) - CaTi0.5Mg0.5FeSiO6 = SiO2 +
+       CaO + 0.5 MgO + 0.5 TiO2 + 1 Fe3+ (-> FeO + 0.5 O). H/S ref
+       include xMELTS' own "Guess" offset (H41=+7932.05 J,
+       S41=+18.756 J/K) - no calorimetric data for this rare component. */
+    { "buff", { 1.0,0,1.0,0.5,1.0,0,0,0.5,0.5,0,0,0,0,0,0,0 },
+        -2828776.95, 180.741, 6.7217,
+        { 303.909, -1417.67, -4356540.0, 352523000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.870E-6, 2.171E-12, 22.250E-6, 52.863E-10 } },
+    /* essenite - CaFeAlSiO6 = SiO2 + 0.5 Al2O3 + CaO + 1 Fe3+
+       (-> FeO + 0.5 O). H/S ref include xMELTS' own offset relative to
+       CaTs (Berman 1988) - real Cosca & Peacor (1987) volume, not
+       guessed. */
+    { "ess", { 1.0,0.5,1.0,0,1.0,0,0,0,0.5,0,0,0,0,0,0,0 },
+        -2867478.01, 177.747, 6.7217,
+        { 317.11, -1733.3, -5109650.0, 542220000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.870E-6, 2.171E-12, 22.250E-6, 52.863E-10 } },
+    /* jadeite - NaAlSi2O6 = 2 SiO2 + 0.5 Al2O3 + 0.5 Na2O */
+    { "jd", { 2.0,0.5,0,0,0,0,0.5,0,0,0,0,0,0,0,0,0 },
+        -3025118.0, 133.574, 6.034,
+        { 311.29, -2005.1, -5350300.0, 662570000.0, 0.0, 0.0, 0.0, 0.0 },
+        { -0.860E-6, 2.149E-12, 23.118E-6, 25.785E-10 } },
 };
 
 /**

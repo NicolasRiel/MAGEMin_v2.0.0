@@ -164,6 +164,7 @@ global_variable global_variable_alloc( bulk_info  *z_b ){
 	gv.ig_ed 			= 0;					/** 0: flag to activate edited version of bi and amp for igneous database 			*/
 	gv.precond 			= 1;					/** 1: precondition (Ruiz-scale) the stoichiometric matrix before inverseMatrix's LU inversion, 0: preconditioning off 	*/
 	gv.BR_rel_norm 		= 1;					/** 1: PGE mass-residual convergence norm is per-oxide-relative (normalized by bulk abundance), 0: old absolute norm 	*/
+	gv.gh_multistart_order = 0;				/** 0 (default): single starting guess for gh's embedded order-parameter phases, matching real xMELTS' own order() exactly; 1: legacy multi-start (see MAGEMin.h) 	*/
 
 	// gv.calc_seismic_cor = 1;					/** compute seismic velocity corrections (melt and anelastic)						*/
 	// gv.melt_pressure 	= 0.0;				/** [kbar] pressure shift in case of modelling melt pressure 						*/

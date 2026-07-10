@@ -3,6 +3,7 @@
  **   Project      : MAGEMin
  **   License      : GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
  **   Developers   : Nicolas Riel, Boris Kaus
+ **   Contributors : Nickolas B. Moccetti, Dominguez, H., Assunção J., Green E., Berlie N., and Rummel L.
  **   Organization : Institute of Geosciences, Johannes-Gutenberg University, Mainz
  **   Contact      : nriel[at]uni-mainz.de, kaus[at]uni-mainz.de
  **
@@ -132,6 +133,18 @@ SS_ref NLopt_opt_gh_lc_function(global_variable gv, SS_ref SS_ref_db){
 SS_ref NLopt_opt_gh_mel_function(global_variable gv, SS_ref SS_ref_db){
     return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_mel);
 }
+SS_ref NLopt_opt_gh_cum_function(global_variable gv, SS_ref SS_ref_db){
+    return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_cum);
+}
+SS_ref NLopt_opt_gh_spn_function(global_variable gv, SS_ref SS_ref_db){
+    return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_spn);
+}
+SS_ref NLopt_opt_gh_cpx_function(global_variable gv, SS_ref SS_ref_db){
+    return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_cpx);
+}
+SS_ref NLopt_opt_gh_opx_function(global_variable gv, SS_ref SS_ref_db){
+    return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_opx);
+}
 
 void GH_NLopt_opt_init(             NLopt_type          *NLopt_opt,
                                     global_variable      gv              ){
@@ -159,6 +172,18 @@ void GH_NLopt_opt_init(             NLopt_type          *NLopt_opt,
         }
         else if (strcmp( gv.SS_list[iss], "mel") == 0 ){
             NLopt_opt[iss] = NLopt_opt_gh_mel_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "cum") == 0 ){
+            NLopt_opt[iss] = NLopt_opt_gh_cum_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "spn") == 0 ){
+            NLopt_opt[iss] = NLopt_opt_gh_spn_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "cpx") == 0 ){
+            NLopt_opt[iss] = NLopt_opt_gh_cpx_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "opx") == 0 ){
+            NLopt_opt[iss] = NLopt_opt_gh_opx_function;
         }
     }
 }

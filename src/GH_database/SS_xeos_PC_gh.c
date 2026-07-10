@@ -3,6 +3,7 @@
  **   Project      : MAGEMin
  **   License      : GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
  **   Developers   : Nicolas Riel, Boris Kaus
+ **   Contributors : Nickolas B. Moccetti, Dominguez, H., Assunção J., Green E., Berlie N., and Rummel L.
  **   Organization : Institute of Geosciences, Johannes-Gutenberg University, Mainz
  **   Contact      : nriel[at]uni-mainz.de, kaus[at]uni-mainz.de
  **
@@ -176,6 +177,90 @@ struct ss_pc gh_mel_pc_xeos[15] = {
     {{ 0.1000, 0.1000, 0.1000, 0.7000 }},
 };
 
+/** Spinel (Chr-Herc-Mt-Spl-Usp): corners, all 10 edge midpoints, centroid,
+    5 near-corner points - same generic coverage spirit as the grids above,
+    extended to 5 endmembers. p order: chr,herc,mt,spl,usp. */
+struct ss_pc gh_spn_pc_xeos[21] = {
+    {{ 1.0000, 0.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 1.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 1.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 1.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.0000, 1.0000 }},
+    {{ 0.5000, 0.5000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.5000, 0.0000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.0000, 0.5000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.0000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.5000, 0.5000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.5000, 0.0000, 0.5000, 0.0000 }},
+    {{ 0.0000, 0.5000, 0.0000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.0000, 0.5000, 0.5000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.5000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.5000, 0.5000 }},
+    {{ 0.2000, 0.2000, 0.2000, 0.2000, 0.2000 }},
+    {{ 0.6000, 0.1000, 0.1000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.6000, 0.1000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.6000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.1000, 0.6000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.1000, 0.1000, 0.6000 }},
+};
+
+/** Cummingtonite (Cumm-Grun): p order cumm,grun. */
+struct ss_pc gh_cum_pc_xeos[9] = {
+    {{ 0.9000, 0.1000 }},
+    {{ 0.8000, 0.2000 }},
+    {{ 0.7000, 0.3000 }},
+    {{ 0.6000, 0.4000 }},
+    {{ 0.5000, 0.5000 }},
+    {{ 0.4000, 0.6000 }},
+    {{ 0.3000, 0.7000 }},
+    {{ 0.2000, 0.8000 }},
+    {{ 0.1000, 0.9000 }},
+};
+
+/** Clinopyroxene/orthopyroxene (Di-Cen-Hed-CaTs(Al)-CaTs(Fe3+)-Ess-Jd):
+    corners, all 21 edge midpoints, centroid, 7 near-corner points - same
+    generic coverage spirit as the grids above, extended to 7 endmembers.
+    p order: di,cen,hed,cats,buff,ess,jd. Reused verbatim for opx (same
+    energetics/endmembers, see obj_gh_cpx). */
+struct ss_pc gh_cpx_pc_xeos[36] = {
+    {{ 1.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 1.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000 }},
+    {{ 0.5000, 0.5000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.5000, 0.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.0000, 0.5000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.0000, 0.0000, 0.5000, 0.0000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.0000, 0.0000, 0.0000, 0.5000, 0.0000 }},
+    {{ 0.5000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.5000, 0.5000, 0.0000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.5000, 0.0000, 0.5000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.5000, 0.0000, 0.0000, 0.5000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.5000, 0.0000, 0.0000, 0.0000, 0.5000, 0.0000 }},
+    {{ 0.0000, 0.5000, 0.0000, 0.0000, 0.0000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.0000, 0.5000, 0.5000, 0.0000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.5000, 0.0000, 0.5000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.5000, 0.0000, 0.0000, 0.5000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.5000, 0.0000, 0.0000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.5000, 0.5000, 0.0000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.5000, 0.0000, 0.5000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.5000, 0.0000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.0000, 0.5000, 0.5000, 0.0000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.0000, 0.5000, 0.0000, 0.5000 }},
+    {{ 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.5000, 0.5000 }},
+    {{ 0.1429, 0.1429, 0.1429, 0.1429, 0.1429, 0.1429, 0.1429 }},
+    {{ 0.4000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.4000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.4000, 0.1000, 0.1000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.1000, 0.4000, 0.1000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.1000, 0.1000, 0.4000, 0.1000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.4000, 0.1000 }},
+    {{ 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.1000, 0.4000 }},
+};
+
 /**
     Small value used to shift PC-grid corners/edges off exact 0.0/1.0
     (matches gv.bnd_val, the same eps used for gh's bounds_ref[eps,1-eps]),
@@ -212,6 +297,9 @@ static void GH_shift_pc_grids_once(void){
     for (int k = 0; k < 15; k++){ GH_shift_row(gh_hb_pc_xeos[k].xeos_pc,   3); }
     for (int k = 0; k < 15; k++){ GH_shift_row(gh_lc_pc_xeos[k].xeos_pc,   3); }
     for (int k = 0; k < 15; k++){ GH_shift_row(gh_mel_pc_xeos[k].xeos_pc,  4); }
+    for (int k = 0; k < 9;  k++){ GH_shift_row(gh_cum_pc_xeos[k].xeos_pc,  2); }
+    for (int k = 0; k < 21; k++){ GH_shift_row(gh_spn_pc_xeos[k].xeos_pc,  5); }
+    for (int k = 0; k < 36; k++){ GH_shift_row(gh_cpx_pc_xeos[k].xeos_pc,  7); }
     gh_pc_shifted = 1;
 }
 
@@ -230,6 +318,10 @@ static struct ss_pc gh_g_pc_xeos_work[15];
 static struct ss_pc gh_hb_pc_xeos_work[15];
 static struct ss_pc gh_lc_pc_xeos_work[15];
 static struct ss_pc gh_mel_pc_xeos_work[15];
+static struct ss_pc gh_cum_pc_xeos_work[9];
+static struct ss_pc gh_spn_pc_xeos_work[21];
+static struct ss_pc gh_cpx_pc_xeos_work[36];
+static struct ss_pc gh_opx_pc_xeos_work[36];
 
 static void GH_build_pc_work(struct ss_pc *src, struct ss_pc *work, int n_row, int n_col, double *z_em){
     for (int k = 0; k < n_row; k++){
@@ -282,5 +374,21 @@ void GH_pc_init_function(  PC_ref  *SS_pc_xeos,
     else if (strcmp(name, "mel") == 0){
         GH_build_pc_work(gh_mel_pc_xeos, gh_mel_pc_xeos_work, 15, 4, z_em);
         SS_pc_xeos[iss].ss_pc_xeos = gh_mel_pc_xeos_work;
+    }
+    else if (strcmp(name, "cum") == 0){
+        GH_build_pc_work(gh_cum_pc_xeos, gh_cum_pc_xeos_work, 9, 2, z_em);
+        SS_pc_xeos[iss].ss_pc_xeos = gh_cum_pc_xeos_work;
+    }
+    else if (strcmp(name, "spn") == 0){
+        GH_build_pc_work(gh_spn_pc_xeos, gh_spn_pc_xeos_work, 21, 5, z_em);
+        SS_pc_xeos[iss].ss_pc_xeos = gh_spn_pc_xeos_work;
+    }
+    else if (strcmp(name, "cpx") == 0){
+        GH_build_pc_work(gh_cpx_pc_xeos, gh_cpx_pc_xeos_work, 36, 7, z_em);
+        SS_pc_xeos[iss].ss_pc_xeos = gh_cpx_pc_xeos_work;
+    }
+    else if (strcmp(name, "opx") == 0){
+        GH_build_pc_work(gh_cpx_pc_xeos, gh_opx_pc_xeos_work, 36, 7, z_em);
+        SS_pc_xeos[iss].ss_pc_xeos = gh_opx_pc_xeos_work;
     }
 }

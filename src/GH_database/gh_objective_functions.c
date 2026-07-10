@@ -3,6 +3,7 @@
  **   Project      : MAGEMin
  **   License      : GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
  **   Developers   : Nicolas Riel, Boris Kaus
+ **   Contributors : Nickolas B. Moccetti, Dominguez, H., Assunção J., Green E., Berlie N., and Rummel L.
  **   Organization : Institute of Geosciences, Johannes-Gutenberg University, Mainz
  **   Contact      : nriel[at]uni-mainz.de, kaus[at]uni-mainz.de
  **
@@ -45,6 +46,13 @@
 
 #include "../MAGEMin.h"
 #include "gh_objective_functions.h"
+
+/** Mirrors gv.gh_multistart_order (obj_gh_spn's own signature is fixed by
+    NLopt's callback interface and doesn't receive gv directly) - copied
+    once in GH_SS_objective_init_function, which does receive gv. Default 0
+    matches real xMELTS' own order() function exactly (single physically-
+    motivated starting guess, no multi-start) - see MAGEMin.h. */
+static int GH_spn_multistart_flag = 0;
 
 double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
     SS_ref *d = (SS_ref *) SS_ref_db;
@@ -619,12 +627,12 @@ double obj_gh_lc(unsigned n, const double *x, double *grad, void *SS_ref_db){
     the 3-site (Ca/Na octahedral, Mg/Fe/Al/Si T1, Al/Si T2) entropy S
     below is already the complete configurational entropy.
 
-    Known limitation (deferred, matching obj_gh_lc): boiled-out safety
-    (+d_em at the log() site) is not implemented for p[0] here - none of
-    gh's current test bulks zero out MgO/CaO/Al2O3 simultaneously enough
-    to boil out akermanite while leaving geh/fak/na active, but revisit if
-    that changes (see gh_gss_function.c's G_SS_gh_mel_function for which
-    oxides would trigger it).
+    ak/fak/na-melilite (p[0]/r1/r2) all get the same +d_em boiled-out
+    guard as obj_gh_hb's xFe2M12/xFe3M3 (see xMg2T1/xNaOct/xFe2T1 below).
+    geh (r0) is the one exception, left as a documented limitation: its
+    boil-out would force r0=0, which degenerates the T1/T2 order-
+    parameter's own valid s-range - a harder case than a simple additive
+    guard fixes (see the comment at xCaOct/xNaOct/xFe2T1 below).
 */
 double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db){
     SS_ref *d = (SS_ref *) SS_ref_db;
@@ -777,8 +785,1076 @@ double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db){
     return d->df;
 }
 
+/**
+    Cummingtonite (cumm-grun, Fe-Mg amphibole): ported from xMELTS'
+    sources/cummingtonite.c (Ghiorso et al. 1994/1995). NR=1, NS=2 - gh's
+    first phase needing a genuine 2D embedded order-parameter solve (M4,
+    M1+M3, M2 site Fe-Mg ordering), generalizing melilite's 1D pattern.
+
+    xMELTS' own r-basis (r=2*p[1]-1, i.e. r=-1 at pure cumm, r=+1 at pure
+    grun) was converted to gh's direct p[0]=x_cumm, p[1]=x_grun convention
+    by substituting r=2*p[1]-1 throughout H(r,s0,s1) and DGDR0 - verified
+    against xMELTS' own native r-basis formulas by direct algebraic
+    substitution AND numerically (both H and dGex/dp1 match to ~1e-6 via
+    central finite differences across p1 in [0.05,0.8], T in [600,1100]K -
+    see scratchpad check_cum_basis.c / check_cum_full.c). p[0] (cumm) is
+    the dependent endmember (dGex[0]=0), matching every gh phase's
+    convention of picking one endmember as the partial-molar reference.
+
+    The embedded solve for s0 (M1+M3 ordering) and s1 (M2 ordering) uses
+    a damped 2x2 Newton step: at each iteration, solve the 2x2 linear
+    system d2G/ds2 * delta_s = -dG/ds via Cramer's rule, then shrink the
+    step length lambda so every one of the 3 independent site fractions
+    (xfe2m4, xfe2m13, xfe2m2 - their Mg-complements follow automatically)
+    stays within (eps, 1-eps). This step-limiting logic is ported directly
+    from xMELTS' own order() function in cummingtonite.c (not invented) -
+    unlike melilite's simpler 1D case (where plain Newton could oscillate
+    forever near a curvature sign change), this 2D Landau-expansion model
+    is well-behaved once step-limited, confirmed convergent and FD-matched
+    at every test composition/temperature tried, including near-endmember
+    compositions (p1=0.05, p1=0.8).
+
+    By the envelope theorem (verified numerically here as everywhere else
+    in gh), the composition gradient dGex/dp1 needs no ds/dp1 correction -
+    it is evaluated at the converged s0*,s1* using the same partial
+    derivative formula xMELTS itself uses (DGDR0, chain-ruled by the
+    constant factor dr/dp1=2 from the r=2*p1-1 substitution).
+*/
+double obj_gh_cum(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    double T    = d->T;
+    double Rgas = d->R*1000.0;
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 2; i++){ p[i] = x[i]; }
+    double p0 = p[0], p1 = p[1];
+
+    const double HEX=-25856.0, HDEX=5905.0, WH123=5115.64, WH13=4592.11, WH2=4324.28, WH4=3559.52,
+                 HX123_4=12102.8, HX134_2=15113.3, HX13_24=3296.10;
+
+    const double H0c    = 5.0*WH123/4.0+WH4/2.0+HX123_4/4.0;
+    const double HS13   = 3.0*HEX/5.0+HDEX;
+    const double HS2    = 2.0*HEX/5.0-HDEX;
+    const double HRS13  = -15.0*WH123/7.0+3.0*WH13-6.0*WH4/7.0-3.0*HX123_4/7.0+HX13_24/2.0;
+    const double HRS2   = -10.0*WH123/7.0+2.0*WH2-4.0*WH4/7.0-2.0*HX123_4/7.0+HX134_2/2.0;
+    const double HS13S13 = -45.0*WH123/49.0-3.0*WH13/7.0-18.0*WH4/49.0-9.0*HX123_4/49.0+3.0*HX13_24/7.0;
+    const double HS13S2  = -60.0*WH123/49.0+12.0*WH13/7.0+12.0*WH2/7.0-24.0*WH4/49.0+25.0*HX123_4/98.0-3.0*HX13_24/14.0-HX134_2/14.0;
+    const double HS2S2   = -20.0*WH123/49.0-6.0*WH2/7.0-8.0*WH4/49.0-4.0*HX123_4/49.0+2.0*HX134_2/7.0;
+
+    double r = 2.0*p1-1.0;
+
+    /* --- embedded 2D solve for the order parameters s0 (M1+M3), s1 (M2) ---
+       Damped Newton with step-length limiting (ported from xMELTS' own
+       cummingtonite.c order() function) rather than plain Newton, keeping
+       every site fraction inside (eps,1-eps) at each step. */
+    double eps_s = 1.0e-8;
+    double s0 = 0.0, s1 = 0.0;
+    for (int iter = 0; iter < 200; iter++){
+        double xfe2m4  = p1+3.0*s0/7.0+2.0*s1/7.0;
+        double xfe2m13 = p1-4.0*s0/7.0+2.0*s1/7.0;
+        double xfe2m2  = p1+3.0*s0/7.0-5.0*s1/7.0;
+        double xmg2m4 = 1.0-xfe2m4, xmg2m13 = 1.0-xfe2m13, xmg2m2 = 1.0-xfe2m2;
+
+        double dgds0 = Rgas*T*( (6.0/7.0)*log(xfe2m4/xmg2m4) - (12.0/7.0)*log(xfe2m13/xmg2m13) + (6.0/7.0)*log(xfe2m2/xmg2m2) )
+                     + HS13 + HRS13*r + 2.0*HS13S13*s0 + HS13S2*s1;
+        double dgds1 = Rgas*T*( (4.0/7.0)*log(xfe2m4/xmg2m4) + (6.0/7.0)*log(xfe2m13/xmg2m13) - (10.0/7.0)*log(xfe2m2/xmg2m2) )
+                     + HS2 + HRS2*r + HS13S2*s0 + 2.0*HS2S2*s1;
+
+        double H00 = Rgas*T*( (18.0/49.0)/xfe2m4 + (18.0/49.0)/xmg2m4 + (48.0/49.0)/xfe2m13 + (48.0/49.0)/xmg2m13
+                            + (18.0/49.0)/xfe2m2 + (18.0/49.0)/xmg2m2 ) + 2.0*HS13S13;
+        double H01 = Rgas*T*( (12.0/49.0)/xfe2m4 + (12.0/49.0)/xmg2m4 - (24.0/49.0)/xfe2m13 - (24.0/49.0)/xmg2m13
+                            - (30.0/49.0)/xfe2m2 - (30.0/49.0)/xmg2m2 ) + HS13S2;
+        double H11 = Rgas*T*( (8.0/49.0)/xfe2m4 + (8.0/49.0)/xmg2m4 + (12.0/49.0)/xfe2m13 + (12.0/49.0)/xmg2m13
+                            + (50.0/49.0)/xfe2m2 + (50.0/49.0)/xmg2m2 ) + 2.0*HS2S2;
+
+        double det = H00*H11-H01*H01;
+        double ds0 = -( H11*dgds0-H01*dgds1)/det;
+        double ds1 = -(-H01*dgds0+H00*dgds1)/det;
+
+        double dxfe2m4  = 3.0*ds0/7.0+2.0*ds1/7.0;
+        double dxfe2m13 = -4.0*ds0/7.0+2.0*ds1/7.0;
+        double dxfe2m2  = 3.0*ds0/7.0-5.0*ds1/7.0;
+        double lambda = 1.0;
+        if (xfe2m4+lambda*dxfe2m4 < eps_s){ lambda = fmin(lambda,(eps_s-xfe2m4)/dxfe2m4); }
+        if (xfe2m4+lambda*dxfe2m4 > 1.0-eps_s){ lambda = fmin(lambda,(1.0-eps_s-xfe2m4)/dxfe2m4); }
+        if (xfe2m13+lambda*dxfe2m13 < eps_s){ lambda = fmin(lambda,(eps_s-xfe2m13)/dxfe2m13); }
+        if (xfe2m13+lambda*dxfe2m13 > 1.0-eps_s){ lambda = fmin(lambda,(1.0-eps_s-xfe2m13)/dxfe2m13); }
+        if (xfe2m2+lambda*dxfe2m2 < eps_s){ lambda = fmin(lambda,(eps_s-xfe2m2)/dxfe2m2); }
+        if (xfe2m2+lambda*dxfe2m2 > 1.0-eps_s){ lambda = fmin(lambda,(1.0-eps_s-xfe2m2)/dxfe2m2); }
+        if (lambda < 0.0){ lambda = 0.0; }
+        if (lambda > 1.0){ lambda = 1.0; }
+
+        double s0n = s0 + lambda*ds0, s1n = s1 + lambda*ds1;
+        if (fabs(s0n-s0) < 1.0e-14 && fabs(s1n-s1) < 1.0e-14){ s0 = s0n; s1 = s1n; break; }
+        s0 = s0n; s1 = s1n;
+    }
+
+    double xfe2m4  = p1+3.0*s0/7.0+2.0*s1/7.0;
+    double xfe2m13 = p1-4.0*s0/7.0+2.0*s1/7.0;
+    double xfe2m2  = p1+3.0*s0/7.0-5.0*s1/7.0;
+    double xmg2m4 = 1.0-xfe2m4, xmg2m13 = 1.0-xfe2m13, xmg2m2 = 1.0-xfe2m2;
+
+    double H = 4.0*H0c*p0*p1 + (HS13-HRS13)*s0 + (HS2-HRS2)*s1
+             + 2.0*HRS13*p1*s0 + 2.0*HRS2*p1*s1
+             + HS13S13*s0*s0 + HS13S2*s0*s1 + HS2S2*s1*s1;
+
+    double S = -Rgas*( 2.0*xfe2m4*log(xfe2m4) + 2.0*xmg2m4*log(xmg2m4)
+                      + 3.0*xfe2m13*log(xfe2m13) + 3.0*xmg2m13*log(xmg2m13)
+                      + 2.0*xfe2m2*log(xfe2m2) + 2.0*xmg2m2*log(xmg2m2) );
+
+    double Gex = H - T*S;   /* V=0 identically for this phase */
+
+    double dGdp1 = 4.0*H0c*(p0-p1) + 2.0*HRS13*s0 + 2.0*HRS2*s1
+                 + Rgas*T*( 2.0*log(xfe2m4/xmg2m4) + 3.0*log(xfe2m13/xmg2m13) + 2.0*log(xfe2m2/xmg2m2) );
+
+    double dGex[2];
+    dGex[0] = 0.0;   /* cummingtonite is the dependent endmember */
+    dGex[1] = dGdp1;
+
+    for (int i = 0; i < 2; i++){
+        double mu = Gex;
+        for (int k = 0; k < 2; k++){
+            double delta_ik = (i==k) ? 1.0 : 0.0;
+            mu += (delta_ik - p[k])*dGex[k];
+        }
+        mu_Gex[i] = mu/1000.0;
+        d->sf[i]  = p[i];
+    }
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 2; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = 0.0;
+    for (int i = 0; i < 2; i++){ d->df_raw += (mu_Gex[i] + gb[i])*p[i]; }
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        for (int i = 0; i < 2; i++){
+            grad[i] = (mu_Gex[i] + gb[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+        }
+    }
+    return d->df;
+}
+
+/**
+    Spinel (Chr-Herc-Mt-Spl-Usp): from xMELTS' sources/spinel.c (Sack &
+    Ghiorso 1991, Contributions to Mineralogy and Petrology 106:474-505;
+    also American Mineralogist). NR=4, NS=3 - gh's first 3D embedded
+    order-parameter solve (tetrahedral/octahedral Mg-Fe2+-Al-Fe3+
+    distribution across two sites; Cr3+ and Ti4+ are always fully
+    octahedral by construction, no order parameter needed for them).
+
+    p[0]=chromite(=r1), p[2]=magnetite(=r3), p[3]=spinel(=r0),
+    p[4]=ulvospinel(=r2) are DIRECTLY xMELTS' own r0..r3 (a pure relabeling,
+    not a basis transform - unlike cummingtonite, xMELTS' own r-basis here
+    already IS 4 of the 5 endmembers' mole fractions). p[1]=hercynite is
+    the dependent endmember (dGex[1]=0), matching xMELTS' own x[1]=1-r0-r1-r2-r3
+    convention. Verified against xMELTS' own H, S, DGDR and D2GDS-S formulas by
+    direct substitution AND numerically (dGex/dp matches central finite
+    differences to ~1e-6 relative, 60+ compositions incl. near-endmember
+    corners - see scratchpad check_spn_full.c/check_spn_gs.c).
+
+    Chromite (p[0]=r1) plays a dual role in xMELTS' own model: it is both
+    an independent composition variable AND (via "s3=x3=r1", not a genuine
+    free order parameter) contributes extra Taylor terms (gs3*r1 etc.)
+    that would otherwise belong to a 4th order parameter. Since these are
+    just additional r1-dependent terms in H (not a new degree of freedom),
+    they fall out automatically from differentiating the H formula below
+    w.r.t. p[0] in the ordinary way - no special handling needed.
+
+    The order-parameter solve uses a joint damped 3D Newton step (all
+    three s's updated together each iteration via the real d2G/ds2
+    Hessian, one shared step-length damping factor computed from all 8
+    site fractions' feasibility bounds) - ported directly from xMELTS'
+    own order() function (GH_spn_solve_s_from), not the per-variable
+    Gauss-Seidel/bisection scheme an earlier version of this port used.
+    That Gauss-Seidel substitute was numerically robust in isolation
+    (FD-matched across 60+ compositions) but introduced small solver-
+    path-dependent inconsistencies between the returned G and its
+    analytic gradient for very close-by trial compositions, enough to
+    defeat NLopt's gradient-based SLSQP: diagnosed via
+    nlopt_get_numevals/status logging showing ~90% of spn's local
+    optimizations silently hitting the 1024-eval cap without converging
+    (a ~30x slowdown, invisible without instrumentation - the run still
+    reported Status 0 with a plausible-looking G). The real joint Newton
+    fixes this (same diagnostic: most calls now reach FTOL_REACHED) and
+    is more faithful, including inheriting MELTS' own known limitation at
+    extreme near-single-endmember compositions (can still fail to
+    converge/land on a different local minimum there) - per this
+    project's fidelity principle, reproducing that is correct, not a
+    regression to engineer around with different-physics robustness code.
+*/
+static void GH_narrow_bound(double val0, double slope, double eps, double *lo, double *hi){
+    if (slope > 0.0){
+        double a = (eps-val0)/slope, b = (1.0-eps-val0)/slope;
+        if (a > *lo){ *lo = a; }
+        if (b < *hi){ *hi = b; }
+    } else if (slope < 0.0){
+        double a = (1.0-eps-val0)/slope, b = (eps-val0)/slope;
+        if (a > *lo){ *lo = a; }
+        if (b < *hi){ *hi = b; }
+    }
+}
+/* Site fractions from the order parameters, clamped into (eps,1-eps) -
+   matching xMELTS' own order() guard (spinel.c lines 2221-2241) exactly:
+   clamp AFTER computing the raw affine value, BEFORE using it in any
+   log()/1/x term, every time it's evaluated (not once at the end). */
+static void GH_spn_site_fracs(double p0,double p2,double p3,double p4,double s0,double s1,double s2,double d_em2,
+    double *xmg2tet,double *xfe2tet,double *xal3tet,double *xfe3tet,
+    double *xmg2oct,double *xfe2oct,double *xal3oct,double *xfe3oct){
+    double eps = 2.220446049250313e-16; /* DBL_EPSILON, matching xMELTS' own guard exactly */
+    double v;
+    v = (p3+s0)/2.0;                                        *xmg2tet = (v<=0.0)?eps:((v>=1.0)?1.0-eps:v);
+    v = p4-0.5*p3-0.5*s0+s1+p0+s2;                           *xfe2tet = (v<=0.0)?eps:((v>=1.0)?1.0-eps:v);
+    v = 1.0-p0-p4-p2-s1;                                     *xal3tet = (v<=0.0)?eps:((v>=1.0)?1.0-eps:v);
+    v = p2-s2+d_em2;                                         *xfe3tet = (v<=0.0)?eps:((v>=1.0)?1.0-eps:v);
+    v = (p3-s0)/4.0;                                         *xmg2oct = (v<=0.0)?eps:((v>=1.0)?1.0-eps:v);
+    v = (2.0-p3+s0-2.0*s1-2.0*p0-2.0*s2)/4.0;                *xfe2oct = (v<=0.0)?eps:((v>=1.0)?1.0-eps:v);
+    v = (1.0-p0-p4-p2+s1)/2.0;                               *xal3oct = (v<=0.0)?eps:((v>=1.0)?1.0-eps:v);
+    v = (p2+s2)/2.0+d_em2;                                   *xfe3oct = (v<=0.0)?eps:((v>=1.0)?1.0-eps:v);
+}
+static void GH_spn_dgds(double p0,double p2,double p3,double p4,double s0,double s1,double s2,double T,double Rgas,
+                         const double *gc, double d_em2, double *dgds0,double *dgds1,double *dgds2){
+    /* gc[] packs: gs1,gs2,gs3,hs4,ss4,gx2s1,gx2s2,gx2s3,gx2s4,gx3s1,gx3s2,gx3s3,gx3s4,
+       gx4s1,gx4s2,gx4s3,gx4s4,gx5s1,gx5s2,gx5s3,gx5s4,gs1s1,gs1s2,gs1s3,gs1s4,
+       gs2s2,gs2s3,gs2s4,gs3s3,gs3s4,gs4s4  (31 entries, indices below) */
+    double gs1=gc[0],gs2=gc[1],hs4=gc[3],ss4=gc[4];
+    double gx2s1=gc[5],gx2s2=gc[6],gx2s4=gc[8];
+    double gx3s1=gc[9],gx3s2=gc[10],gx3s4=gc[12];
+    double gx4s1=gc[13],gx4s2=gc[14],gx4s4=gc[16];
+    double gx5s1=gc[17],gx5s2=gc[18],gx5s4=gc[20];
+    double gs1s1=gc[21],gs1s2=gc[22],gs1s3=gc[23],gs1s4=gc[24];
+    double gs2s2=gc[25],gs2s3=gc[26],gs2s4=gc[27],gs3s4=gc[29],gs4s4=gc[30];
+
+    double xmg2tet,xfe2tet,xal3tet,xfe3tet,xmg2oct,xfe2oct,xal3oct,xfe3oct;
+    GH_spn_site_fracs(p0,p2,p3,p4,s0,s1,s2,d_em2,&xmg2tet,&xfe2tet,&xal3tet,&xfe3tet,&xmg2oct,&xfe2oct,&xal3oct,&xfe3oct);
+
+    *dgds0 = gs1 + gx2s1*p3 + gx3s1*p0 + gx4s1*p4 + gx5s1*p2
+           + 2.0*gs1s1*s0 + gs1s2*s1 + gs1s3*p0 + gs1s4*s2
+           + 0.5*Rgas*T*(log(xmg2tet/xfe2tet) + log(xfe2oct/xmg2oct));
+    *dgds1 = gs2 + gx2s2*p3 + gx3s2*p0 + gx4s2*p4 + gx5s2*p2
+           + gs1s2*s0 + 2.0*gs2s2*s1 + gs2s3*p0 + gs2s4*s2
+           + Rgas*T*(log(xfe2tet/xal3tet) + log(xal3oct/xfe2oct));
+    *dgds2 = hs4 - T*ss4 + gx2s4*p3 + gx3s4*p0 + gx4s4*p4 + gx5s4*p2
+           + gs1s4*s0 + gs2s4*s1 + gs3s4*p0 + 2.0*gs4s4*s2
+           + Rgas*T*(log(xfe2tet/xfe3tet) + log(xfe3oct/xfe2oct));
+}
+/* Hessian d2G/ds_i ds_j, from xMELTS' own D2GDS0S0/D2GDS0S1/D2GDS0S2/
+   D2GDS1S1/D2GDS1S2/D2GDS2S2 macros (spinel.c lines 1660-1674) - not
+   previously ported (gh's spn used a bisection scheme needing only first
+   derivatives); needed now for the real joint Newton step below. */
+static void GH_spn_d2gds(double p0,double p2,double p3,double p4,double s0,double s1,double s2,double T,double Rgas,
+                          const double *gc, double d_em2,
+                          double *d00,double *d01,double *d02,double *d11,double *d12,double *d22){
+    double gs1s1=gc[21],gs1s2=gc[22],gs1s4=gc[24],gs2s2=gc[25],gs2s4=gc[27],gs4s4=gc[30];
+    double xmg2tet,xfe2tet,xal3tet,xfe3tet,xmg2oct,xfe2oct,xal3oct,xfe3oct;
+    GH_spn_site_fracs(p0,p2,p3,p4,s0,s1,s2,d_em2,&xmg2tet,&xfe2tet,&xal3tet,&xfe3tet,&xmg2oct,&xfe2oct,&xal3oct,&xfe3oct);
+
+    *d00 = 2.0*gs1s1 + 0.25*Rgas*T*(1.0/xmg2tet + 1.0/xfe2tet + 0.5/xfe2oct + 0.5/xmg2oct);
+    *d01 = gs1s2 + 0.5*Rgas*T*(-1.0/xfe2tet - 0.5/xfe2oct);
+    *d02 = gs1s4 + 0.5*Rgas*T*(-1.0/xfe2tet - 0.5/xfe2oct);
+    *d11 = 2.0*gs2s2 + Rgas*T*(1.0/xfe2tet + 1.0/xal3tet + 0.5/xal3oct + 0.5/xfe2oct);
+    *d12 = gs2s4 + Rgas*T*(1.0/xfe2tet + 0.5/xfe2oct);
+    *d22 = 2.0*gs4s4 + Rgas*T*(1.0/xfe2tet + 1.0/xfe3tet + 0.5/xfe3oct + 0.5/xfe2oct);
+}
+static double GH_spn_G_at(double p0,double p2,double p3,double p4,double s0,double s1,double s2,double T,double Rgas,
+                           const double *gc,
+                           double gx2x2,double gx2x3,double gx2x4,double gx2x5,
+                           double gx3x3,double gx3x4,double gx3x5,double gx4x4,double gx4x5,double gx5x5,
+                           double WV1,double WV2,double Pval,double d_em0,double d_em2,double d_em4){
+    double xmg2tet=(p3+s0)/2.0, xfe2tet=p4-0.5*p3-0.5*s0+s1+p0+s2, xal3tet=1.0-p0-p4-p2-s1, xfe3tet=p2-s2+d_em2;
+    double xmg2oct=(p3-s0)/4.0, xfe2oct=(2.0-p3+s0-2.0*s1-2.0*p0-2.0*s2)/4.0, xal3oct=(1.0-p0-p4-p2+s1)/2.0, xfe3oct=(p2+s2)/2.0+d_em2;
+    double xcr3oct=p0+d_em0, xti4oct=(p4+d_em4)/2.0;
+
+    double H = gx2x2*p3*p3 + gx2x3*p3*p0 + gx2x4*p3*p4 + gx2x5*p3*p2
+             + gc[5]*p3*s0 + gc[6]*p3*s1 + gc[7]*p3*p0 + gc[8]*p3*s2
+             + gx3x3*p0*p0 + gx3x4*p0*p4 + gx3x5*p0*p2 + gc[9]*p0*s0 + gc[10]*p0*s1
+             + gc[11]*p0*p0 + gc[12]*p0*s2
+             + gx4x4*p4*p4 + gx4x5*p4*p2 + gc[13]*p4*s0 + gc[14]*p4*s1 + gc[15]*p4*p0 + gc[16]*p4*s2
+             + gx5x5*p2*p2 + gc[17]*p2*s0 + gc[18]*p2*s1 + gc[19]*p2*p0 + gc[20]*p2*s2
+             + gc[0]*s0 + gc[1]*s1 + gc[2]*p0 + gc[3]*s2
+             + gc[21]*s0*s0 + gc[22]*s0*s1 + gc[23]*s0*p0 + gc[24]*s0*s2
+             + gc[25]*s1*s1 + gc[26]*s1*p0 + gc[27]*s1*s2
+             + gc[28]*p0*p0 + gc[29]*p0*s2 + gc[30]*s2*s2;
+
+    double S = -Rgas*( xmg2tet*log(xmg2tet) + xfe2tet*log(xfe2tet)
+                      + xal3tet*log(xal3tet) + xfe3tet*log(xfe3tet)
+                      + 2.0*xmg2oct*log(xmg2oct) + 2.0*xfe2oct*log(xfe2oct)
+                      + 2.0*xal3oct*log(xal3oct) + 2.0*xfe3oct*log(xfe3oct)
+                      + 2.0*xcr3oct*log(xcr3oct) + 2.0*xti4oct*log(xti4oct) ) + gc[4]*s2;
+
+    double Gvol = p4*p2*(WV1*p2+WV2*p4)*(Pval-1.0);
+    return H - T*S + Gvol;
+}
+/* Joint damped Newton solve for s0,s1,s2 - ported directly from xMELTS'
+   own order() function (spinel.c lines 2203-2325), not a gh-invented
+   scheme: at each iteration, solve the 3x3 linear system
+   d2gds2 * delta = -dgds (Cramer's rule instead of xMELTS' gaussj, same
+   math) for a joint step in all three order parameters together, then
+   compute ONE shared step-length damping factor lambda (starting at 1.0,
+   tightened in turn by each of the 8 site fractions' own linear
+   feasibility bound - the exact sequence and arithmetic xMELTS uses, not
+   a "min over all constraints" rewrite) and apply lambda*delta to all
+   three simultaneously. This replaces an earlier per-variable Gauss-
+   Seidel/bisection scheme that, while numerically robust in isolation,
+   produced small solver-path-dependent inconsistencies between the
+   returned G and its analytic gradient for very close-by trial
+   compositions - enough to defeat NLopt's gradient-based SLSQP, which
+   hit its 1024-eval cap on ~90% of calls without converging (diagnosed
+   via nlopt_get_numevals/status logging). The real joint Newton matches
+   what MELTS itself actually computes, including its own known limits
+   (documented: can fail to converge or land on a different local minimum
+   at extreme near-single-endmember compositions) - per this project's
+   own fidelity principle, that is the correct behavior to reproduce, not
+   something to engineer around with different-physics robustness code. */
+static void GH_spn_solve_s_from(double p0,double p2,double p3,double p4,double T,double Rgas,const double *gc,double d_em2,
+                                 double s0init,double s1init,double s2init,double *s0o,double *s1o,double *s2o){
+    const int maxIter = 200; /* xMELTS' own MAX_ITER (spinel.c) */
+    double s0=s0init, s1=s1init, s2=s2init;
+    double s0Old=2.0, s1Old=2.0, s2Old=2.0; /* force >=1 iteration, matching xMELTS' sOld[i]=2.0 init */
+    int iter = 0;
+    while ( (fabs(s0-s0Old) > 10.0*2.220446049250313e-16 ||
+             fabs(s1-s1Old) > 10.0*2.220446049250313e-16 ||
+             fabs(s2-s2Old) > 10.0*2.220446049250313e-16) && iter < maxIter ){
+        double xmg2tet,xfe2tet,xal3tet,xfe3tet,xmg2oct,xfe2oct,xal3oct,xfe3oct;
+        GH_spn_site_fracs(p0,p2,p3,p4,s0,s1,s2,d_em2,&xmg2tet,&xfe2tet,&xal3tet,&xfe3tet,&xmg2oct,&xfe2oct,&xal3oct,&xfe3oct);
+
+        double dgds0,dgds1,dgds2;
+        GH_spn_dgds(p0,p2,p3,p4,s0,s1,s2,T,Rgas,gc,d_em2,&dgds0,&dgds1,&dgds2);
+        double d00,d01,d02,d11,d12,d22;
+        GH_spn_d2gds(p0,p2,p3,p4,s0,s1,s2,T,Rgas,gc,d_em2,&d00,&d01,&d02,&d11,&d12,&d22);
+
+        s0Old=s0; s1Old=s1; s2Old=s2;
+
+        /* solve [[d00,d01,d02],[d01,d11,d12],[d02,d12,d22]]*delta = -[dgds0,dgds1,dgds2] */
+        double r0=-dgds0, r1=-dgds1, r2=-dgds2;
+        double det  = d00*(d11*d22-d12*d12) - d01*(d01*d22-d12*d02) + d02*(d01*d12-d11*d02);
+        double det0 =  r0*(d11*d22-d12*d12) - d01*( r1*d22-d12* r2) + d02*( r1*d12-d11* r2);
+        double det1 = d00*( r1*d22- r2*d12) -  r0*(d01*d22-d12*d02) + d02*(d01* r2- r1*d02);
+        double det2 = d00*(d11* r2-d12* r1) - d01*(d01* r2-d12* r0) +  r0*(d01*d12-d11*d02);
+        double deltaS0 = det0/det, deltaS1 = det1/det, deltaS2 = det2/det;
+
+        double lambda = 1.0;
+        double val, slope;
+        /* xmg2tet = (p3+s0)/2 -> d/dstep = deltaS0/2 */
+        val=xmg2tet; slope=deltaS0/2.0;
+        if      (slope != 0.0 && val+lambda*slope < 0.0) lambda = -val/slope;
+        else if (slope != 0.0 && val+lambda*slope > 1.0) lambda = (1.0-val)/slope;
+        /* xfe2tet: -deltaS0/2+deltaS1+deltaS2 */
+        val=xfe2tet; slope=-deltaS0/2.0+deltaS1+deltaS2;
+        if      (slope != 0.0 && val+lambda*slope < 0.0) lambda = -val/slope;
+        else if (slope != 0.0 && val+lambda*slope > 1.0) lambda = (1.0-val)/slope;
+        /* xal3tet: -deltaS1 */
+        val=xal3tet; slope=-deltaS1;
+        if      (slope != 0.0 && val+lambda*slope < 0.0) lambda = -val/slope;
+        else if (slope != 0.0 && val+lambda*slope > 1.0) lambda = (1.0-val)/slope;
+        /* xfe3tet: -deltaS2 */
+        val=xfe3tet; slope=-deltaS2;
+        if      (slope != 0.0 && val+lambda*slope < 0.0) lambda = -val/slope;
+        else if (slope != 0.0 && val+lambda*slope > 1.0) lambda = (1.0-val)/slope;
+        /* xmg2oct: -deltaS0/4 */
+        val=xmg2oct; slope=-deltaS0/4.0;
+        if      (slope != 0.0 && val+lambda*slope < 0.0) lambda = -val/slope;
+        else if (slope != 0.0 && val+lambda*slope > 1.0) lambda = (1.0-val)/slope;
+        /* xfe2oct: deltaS0/4-deltaS1/2-deltaS2/2 */
+        val=xfe2oct; slope=deltaS0/4.0-deltaS1/2.0-deltaS2/2.0;
+        if      (slope != 0.0 && val+lambda*slope < 0.0) lambda = -val/slope;
+        else if (slope != 0.0 && val+lambda*slope > 1.0) lambda = (1.0-val)/slope;
+        /* xal3oct: deltaS1/2 */
+        val=xal3oct; slope=deltaS1/2.0;
+        if      (slope != 0.0 && val+lambda*slope < 0.0) lambda = -val/slope;
+        else if (slope != 0.0 && val+lambda*slope > 1.0) lambda = (1.0-val)/slope;
+        /* xfe3oct: deltaS2/2 */
+        val=xfe3oct; slope=deltaS2/2.0;
+        if      (slope != 0.0 && val+lambda*slope < 0.0) lambda = -val/slope;
+        else if (slope != 0.0 && val+lambda*slope > 1.0) lambda = (1.0-val)/slope;
+
+        if (lambda < 1.0){
+            s0 = s0Old + lambda*deltaS0; s1 = s1Old + lambda*deltaS1; s2 = s2Old + lambda*deltaS2;
+        } else {
+            s0 = s0Old + deltaS0; s1 = s1Old + deltaS1; s2 = s2Old + deltaS2;
+        }
+        iter++;
+    }
+    *s0o=s0; *s1o=s1; *s2o=s2;
+}
+double obj_gh_spn(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    double T    = d->T;
+    double Rgas = d->R*1000.0;
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 5; i++){ p[i] = x[i]; }
+    double p0 = p[0], p2 = p[2], p3 = p[3], p4 = p[4];   /* p[1]=hercynite, dependent */
+
+    const double H11=-8.7e3*4.184, W11=4.5e3*4.184, W14=20.8e3*4.184, W1P4=12.4e3*4.184,
+                 W15=10.0e3*4.184, W1P5=14.4e3*4.184, W15P=11.7e3*4.184, W1P5P=7.0e3*4.184,
+                 W22=3.6e3*4.184, H24=6.55e3*4.184, W24U=12.6e3*4.184, W2P4U=10.9e3*4.184,
+                 H25=8.05e3*4.184, W25PU=15.3e3*4.184, W2P5U=14.4e3*4.184, W45=6.0e3*4.184,
+                 W45P=2.0e3*4.184, W4U5PU=1.8e3*4.184, H55=6.25e3*4.184, S55=0.0, W55=0.0,
+                 HEX=-3.6e3*4.184, HX=2.4e3*4.184, WOCT=2.0e3*4.184, WTET=2.0e3*4.184,
+                 H33=-20.0e3*4.184, H23=0.0, W33=7.0e3*4.184, W13=10.0e3*4.184,
+                 W1P3=15.2e3*4.184, W13P=11.3e3*4.184, W1P3P=5.9e3*4.184, W2P3U=10.0e3*4.184,
+                 W23PU=9.7e3*4.184, W34=12.5e3*4.184, W3P4=10.0e3*4.184, W3PU4U=10.4e3*4.184,
+                 W35=0.0, W3P5=10.0e3*4.184, W35P=8.0e3*4.184, W3P5P=0.0;
+    const double WV1=-0.1250, WV2=0.1018;
+
+    const double gx2x2 = -0.25*(WTET+WOCT+HX);
+    const double gx2x3 = 0.5*(W2P3U-W22-W1P3+W11+2.0*H23);
+    const double gx2x4 = 0.5*(WTET-W24U+W14+0.5*HX-0.5*HEX+H24);
+    const double gx2x5 = 0.5*(-W22+W11+W2P5U-W1P5+2.0*H25);
+    const double gx3x3 = -W13;
+    const double gx3x4 = W34-W14-W13;
+    const double gx3x5 = W35-W15-W13;
+    const double gx4x4 = -W14;
+    const double gx4x5 = W45-W15-W14;
+    const double gx5x5 = -W15;
+
+    double gc[31];
+    gc[0]  = 0.5*(-WOCT+W24U-W14+0.5*HX+0.5*HEX+H24);              /* gs1 */
+    gc[1]  = W11+H11;                                              /* gs2 */
+    gc[2]  = W13P-W13+H33;                                         /* gs3 */
+    gc[3]  = W15P-W15+H55;                                         /* hs4 */
+    gc[4]  = S55;                                                  /* ss4 */
+    gc[5]  = 0.5*(WOCT-WTET);                                      /* gx2s1 */
+    gc[6]  = 0.5*(WTET-W22+W11-WOCT+2.0*W2P4U-2.0*W1P4-HEX+2.0*H24); /* gx2s2 */
+    gc[7]  = 0.5*(WTET-WOCT+2.0*W3PU4U-2.0*W3P4-W2P3U-W23PU+W22+W1P3+W13P-W11-HEX+2.0*H24-2.0*H23); /* gx2s3 */
+    gc[8]  = 0.5*(WTET-WOCT-W11+W22+2.0*W4U5PU-2.0*W45P-W2P5U-W25PU+W1P5+W15P-HEX-2.0*H25+2.0*H24);  /* gx2s4 */
+    gc[9]  = 0.5*(W2P3U-W22-W1P3+W11);                             /* gx3s1 */
+    gc[10] = W1P3-W13-W11;                                         /* gx3s2 */
+    gc[11] = W33-W13P+W13;                                         /* gx3s3 */
+    gc[12] = W35P-W35-W15P+W15;                                    /* gx3s4 */
+    gc[13] = 0.5*(WTET-W24U+W14-0.5*HX+0.5*HEX-H24);               /* gx4s1 */
+    gc[14] = -W11+W1P4-W14;                                        /* gx4s2 */
+    gc[15] = W3P4-W34-W13P+W13;                                    /* gx4s3 */
+    gc[16] = W45P-W45-W15P+W15;                                    /* gx4s4 */
+    gc[17] = 0.5*(-W22+W11+W2P5U-W1P5);                            /* gx5s1 */
+    gc[18] = -W11+W1P5-W15;                                        /* gx5s2 */
+    gc[19] = W3P5-W35-W13P+W13;                                    /* gx5s3 */
+    gc[20] = W55-W15P+W15;                                         /* gx5s4 */
+    gc[21] = 0.25*(-WTET-WOCT+HX);                                 /* gs1s1 */
+    gc[22] = 0.5*(WTET-W22+W11+WOCT-HX);                           /* gs1s2 */
+    gc[23] = 0.5*(WTET+WOCT-W2P3U-W23PU+W22+W1P3+W13P-W11-HX);     /* gs1s3 */
+    gc[24] = 0.5*(WTET+WOCT+W22-W11-W2P5U-W25PU+W1P5+W15P-HX);     /* gs1s4 */
+    gc[25] = -W11;                                                 /* gs2s2 */
+    gc[26] = W1P3P-W1P3-W13P+W13;                                  /* gs2s3 */
+    gc[27] = W1P5P-W1P5-W15P+W15;                                  /* gs2s4 */
+    gc[28] = -W33;                                                 /* gs3s3 */
+    gc[29] = W3P5P-W3P5-W35P+W35;                                  /* gs3s4 */
+    gc[30] = -W55;                                                 /* gs4s4 */
+
+    /* --- embedded 3D solve for order parameters s0(M1+M3-like tet/oct split
+       for Mg-Fe2+), s1 (Al distribution), s2 (Fe3+ distribution) ---
+       Default (gv.gh_multistart_order=0): ONE physically-motivated starting
+       guess - the exact same "distribute cations proportional to available
+       site ratio" formula xMELTS' own order() function uses - fed into the
+       real joint damped 3D Newton solve (GH_spn_solve_s_from), matching
+       xMELTS' own order() exactly (see this function's broader header
+       comment for why an earlier Gauss-Seidel/bisection substitute was
+       replaced).
+
+       Known limitation (confirmed via finite differences, not a
+       transcription error - every one of the 31 Taylor coefficients and
+       ~35 raw W-parameters was cross-checked term-by-term against xMELTS'
+       own spinel.c): this 3D order-parameter problem has genuine multiple
+       local minima at extreme, near-single-endmember compositions (e.g.
+       ~99.7% pure MgAl2O4 "spl") - a real feature of the non-convex energy
+       landscape, not unique to this port. Real MELTS' own single Newton
+       path can land on any of these depending on where it starts, same as
+       here; this is confined to a composition regime (>99% single
+       endmember) far from where any real spinel-bearing bulk would land.
+
+       gv.gh_multistart_order=1 (legacy/opt-in, NOT the default): try
+       several starting points spanning the feasible s-cube and keep
+       whichever converges to the lowest G - finds a lower, more globally-
+       optimal G at those same extreme corners (with a more physically
+       "normal"-structure order parameter), but can then disagree with what
+       real MELTS itself would compute there, since MELTS never multi-
+       starts either. See scratchpad check_spn_multistart2.c. */
+    double s0, s1, s2;
+    {
+        double totAl=2.0*(1.0-p0-p4-p2), totCr=2.0*p0, totFe3=2.0*p2, totMg=p3, totTi=p4;
+        double ratio = 2.0-totCr-totTi;
+        double xmg2oct0=totMg*ratio/(1.0+ratio);
+        double xal3oct0=totAl*ratio/(1.0+ratio), xfe3oct0=totFe3*ratio/(1.0+ratio);
+        double xmg2tet0=totMg-xmg2oct0, xal3tet0=totAl-xal3oct0, xfe3tet0=totFe3-xfe3oct0;
+        xmg2oct0/=2.0; xal3oct0/=2.0; xfe3oct0/=2.0;
+        s0 = xmg2tet0-2.0*xmg2oct0;
+        s1 = xal3oct0-xal3tet0/2.0;
+        s2 = xfe3oct0-xfe3tet0/2.0;
+    }
+    if (!GH_spn_multistart_flag){
+        double cs0, cs1, cs2;
+        GH_spn_solve_s_from(p0,p2,p3,p4,T,Rgas,gc,d->d_em[2],s0,s1,s2,&cs0,&cs1,&cs2);
+        s0 = cs0; s1 = cs1; s2 = cs2;
+    }
+    else {
+        const double starts[7][3] = {
+            {0.0,0.0,0.0}, {0.8,0.0,0.0}, {-0.8,0.0,0.0}, {0.0,0.8,0.0}, {0.0,-0.8,0.0},
+            {0.5,0.5,0.0}, {-0.5,-0.5,0.0}
+        };
+        double bestG = 1.0e300, bs0=s0, bs1=s1, bs2=s2;
+        double cand_starts[8][3];
+        cand_starts[0][0]=s0; cand_starts[0][1]=s1; cand_starts[0][2]=s2;
+        for (int i = 0; i < 7; i++){ cand_starts[i+1][0]=starts[i][0]; cand_starts[i+1][1]=starts[i][1]; cand_starts[i+1][2]=starts[i][2]; }
+        for (int i = 0; i < 8; i++){
+            double cs0, cs1, cs2;
+            GH_spn_solve_s_from(p0,p2,p3,p4,T,Rgas,gc,d->d_em[2],cand_starts[i][0],cand_starts[i][1],cand_starts[i][2],&cs0,&cs1,&cs2);
+            double G = GH_spn_G_at(p0,p2,p3,p4,cs0,cs1,cs2,T,Rgas,gc,
+                                    gx2x2,gx2x3,gx2x4,gx2x5,gx3x3,gx3x4,gx3x5,gx4x4,gx4x5,gx5x5,
+                                    WV1,WV2,d->P,d->d_em[0],d->d_em[2],d->d_em[4]);
+            if (G < bestG){ bestG = G; bs0 = cs0; bs1 = cs1; bs2 = cs2; }
+        }
+        s0 = bs0; s1 = bs1; s2 = bs2;
+    }
+
+    /* xcr3oct/xti4oct/xfe3tet/xfe3oct get the same +d_em guard used
+       throughout gh (hb, melilite): if chromite, ulvospinel or magnetite is
+       boiled out (bounds_ref pins its p to exactly 0), log() of its site
+       fraction would otherwise be log(0)=NaN. The +d_em2 guard here keeps
+       the S/H/dGdp block finite regardless of whatever s2 the Newton solve
+       converges to in that degenerate case, consistent with z_em[2]=0
+       already excluding magnetite from the real mass balance. */
+    double xmg2tet=(p3+s0)/2.0, xfe2tet=p4-0.5*p3-0.5*s0+s1+p0+s2, xal3tet=1.0-p0-p4-p2-s1, xfe3tet=p2-s2+d->d_em[2];
+    double xmg2oct=(p3-s0)/4.0, xfe2oct=(2.0-p3+s0-2.0*s1-2.0*p0-2.0*s2)/4.0, xal3oct=(1.0-p0-p4-p2+s1)/2.0, xfe3oct=(p2+s2)/2.0+d->d_em[2];
+    double xcr3oct=p0+d->d_em[0], xti4oct=(p4+d->d_em[4])/2.0;
+
+    double H = gx2x2*p3*p3 + gx2x3*p3*p0 + gx2x4*p3*p4 + gx2x5*p3*p2
+             + gc[5]*p3*s0 + gc[6]*p3*s1 + gc[7]*p3*p0 + gc[8]*p3*s2
+             + gx3x3*p0*p0 + gx3x4*p0*p4 + gx3x5*p0*p2 + gc[9]*p0*s0 + gc[10]*p0*s1
+             + gc[11]*p0*p0 + gc[12]*p0*s2
+             + gx4x4*p4*p4 + gx4x5*p4*p2 + gc[13]*p4*s0 + gc[14]*p4*s1 + gc[15]*p4*p0 + gc[16]*p4*s2
+             + gx5x5*p2*p2 + gc[17]*p2*s0 + gc[18]*p2*s1 + gc[19]*p2*p0 + gc[20]*p2*s2
+             + gc[0]*s0 + gc[1]*s1 + gc[2]*p0 + gc[3]*s2
+             + gc[21]*s0*s0 + gc[22]*s0*s1 + gc[23]*s0*p0 + gc[24]*s0*s2
+             + gc[25]*s1*s1 + gc[26]*s1*p0 + gc[27]*s1*s2
+             + gc[28]*p0*p0 + gc[29]*p0*s2 + gc[30]*s2*s2;
+
+    double S = -Rgas*( xmg2tet*log(xmg2tet) + xfe2tet*log(xfe2tet)
+                      + xal3tet*log(xal3tet) + xfe3tet*log(xfe3tet)
+                      + 2.0*xmg2oct*log(xmg2oct) + 2.0*xfe2oct*log(xfe2oct)
+                      + 2.0*xal3oct*log(xal3oct) + 2.0*xfe3oct*log(xfe3oct)
+                      + 2.0*xcr3oct*log(xcr3oct) + 2.0*xti4oct*log(xti4oct) ) + gc[4]*s2;
+
+    double Gvol = p4*p2*(WV1*p2+WV2*p4)*((d->P)-1.0);
+    double Gex = H - T*S + Gvol;
+
+    /* dGdp0: chromite (p0=r1) plays a dual role in xMELTS' own model (see
+       this function's header comment) - its "gx3-family" terms (p0 as an
+       ordinary composition variable, e.g. gx3x3*p0^2) and its "gs3-family"
+       terms (p0 standing in for what would otherwise be order parameter
+       s3, e.g. gs3s3*p0^2 via gc[28] - a DIFFERENT W-parameter, W33 not
+       W13) are both genuinely present as distinct additive terms in H -
+       but each term differentiates ONCE, not once per "role". An earlier
+       version of this formula double-counted gc[2] and gc[7]*p3 while
+       omitting gx2x3*p3 entirely (the term symmetric to dGdp3's own
+       gx2x3*p0, from the same gx2x3*p3*p0 cross term in H) - a real bug,
+       not a deliberate double-block sum: confirmed by finite-difference
+       (grad[0] was off by ~19 kJ at every tested composition, the other
+       four gradients were already exact) and by symmetry with dGdp2/
+       dGdp3/dGdp4, which already collect each H cross-term exactly once.
+       This is very likely why spinel's NLopt optimizations needed ~20x
+       more evaluations than cpx's to (mostly not) converge - SLSQP was
+       being fed a wrong gradient, not fighting genuine landscape
+       non-smoothness. */
+    double dGdp0 = gc[2] + gc[7]*p3 + gx2x3*p3 + 2.0*gx3x3*p0 + gx3x4*p4 + gx3x5*p2 + gc[9]*s0 + gc[10]*s1 + 2.0*gc[11]*p0 + gc[12]*s2
+                 + gc[15]*p4 + gc[19]*p2 + gc[23]*s0 + gc[26]*s1 + 2.0*gc[28]*p0 + gc[29]*s2
+                 + Rgas*T*(log(xfe2tet/xal3tet) + 2.0*log(xcr3oct) - log(xfe2oct) - log(xal3oct));
+    double dGdp2 = gx5x5*2.0*p2 + gx2x5*p3 + gx3x5*p0 + gx4x5*p4 + gc[17]*s0 + gc[18]*s1 + gc[19]*p0 + gc[20]*s2
+                 + Rgas*T*(log(xfe3tet/xal3tet) + log(xfe3oct/xal3oct))
+                 + p4*(WV1*p2+WV2*p4)*((d->P)-1.0) + p2*p4*WV2*((d->P)-1.0);
+    double dGdp3 = gx2x2*2.0*p3 + gx2x3*p0 + gx2x4*p4 + gx2x5*p2 + gc[5]*s0 + gc[6]*s1 + gc[7]*p0 + gc[8]*s2
+                 + 0.5*Rgas*T*(log(xmg2tet/xfe2tet) + log(xmg2oct/xfe2oct));
+    double dGdp4 = gx4x4*2.0*p4 + gx2x4*p3 + gx3x4*p0 + gx4x5*p2 + gc[13]*s0 + gc[14]*s1 + gc[15]*p0 + gc[16]*s2
+                 + Rgas*T*(log(xfe2tet/xal3tet) + log(xti4oct/xal3oct))
+                 + p2*(WV1*p2+WV2*p4)*((d->P)-1.0) + p2*p4*WV1*((d->P)-1.0);
+
+    double dGex[5];
+    dGex[0] = dGdp0;
+    dGex[1] = 0.0;   /* hercynite is the dependent endmember */
+    dGex[2] = dGdp2;
+    dGex[3] = dGdp3;
+    dGex[4] = dGdp4;
+
+    for (int i = 0; i < 5; i++){
+        double mu = Gex;
+        for (int k = 0; k < 5; k++){
+            double delta_ik = (i==k) ? 1.0 : 0.0;
+            mu += (delta_ik - p[k])*dGex[k];
+        }
+        mu_Gex[i] = mu/1000.0;
+        d->sf[i]  = p[i];
+    }
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 5; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = 0.0;
+    for (int i = 0; i < 5; i++){ d->df_raw += (mu_Gex[i] + gb[i])*p[i]; }
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        for (int i = 0; i < 5; i++){
+            grad[i] = (mu_Gex[i] + gb[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+        }
+    }
+    return d->df;
+}
+
+/**
+    Clinopyroxene / Orthopyroxene (Di-Cen-Hed-CaTs(Al,"alumino-buffonite")-
+    CaTs(Fe3+,"buffonite")-Ess-Jd): from xMELTS' sources/clinopyroxene.c
+    and orthopyroxene.c (Sack & Ghiorso 1993). NR=6, NS=2 - gh's largest
+    embedded order-parameter phase (Step 5, the last planned addition).
+
+    KEY FINDING (confirmed by diffing the two ~5400-line source files,
+    not assumed): clinopyroxene.c and orthopyroxene.c are the SAME model.
+    `ISCLINO` (the compile flag that would let xMELTS' own isClino()
+    compare a clino-vs-ortho G and pick the lower) is `#undef`'d
+    unconditionally in both files, and BOTH files separately hardcode
+    `static const int clino = TRUE;` in their own order()/pureOrder()
+    functions - so both registered MELTS phases ("clinopyroxene" and
+    "orthopyroxene") always evaluate the identical clino-branch Taylor
+    coefficients. The only differences between the two files are
+    testCpx/testOpx's composition-validity bounds and conCpx/conOpx's
+    default Fe2+/Fe3+ probe-analysis partitioning - neither relevant to
+    gh's direct-composition p=x approach. So gh registers "cpx" and "opx"
+    as two separate solution phases sharing the exact same objective
+    function (obj_gh_opx is a thin wrapper around obj_gh_cpx below),
+    letting MAGEMin's own multi-phase competition pick whichever is
+    stable - reproducing real MELTS' behavior (which itself never
+    actually calls isClino() in production either, since ISCLINO is
+    always undefined) without needing any new "compare and choose"
+    architecture.
+
+    All 245 H/S/V Taylor coefficients below were extracted by compiling
+    xMELTS' own #define macros (clinopyroxene.c lines 211-893) with
+    clino=1 and calculationMode=MODE_xMELTS hardcoded, then printing every
+    coefficient's numeric value directly - not manually re-derived, which
+    eliminates transcription/arithmetic risk for a ~100-term formula (see
+    scratchpad gen_cpx_constants.c). This also settled what the "p"-
+    prefixed constants seen during initial inspection actually are:
+    clino=TRUE collapses H1..H7/S1..S7/V1..V7 (the ortho-vertex offsets)
+    to exactly zero and activates pH1..pH7 (Ghiorso's "sliding standard
+    state for pigeonite", added in xMELTS v3.1-1) - fixed constants folded
+    into the clino-branch coefficients, NOT a third structural state
+    requiring its own isClino-style comparison.
+
+    G(r,s) (the "G" expression below) is xMELTS' own raw Taylor+ideal-
+    entropy sum - unlike cum/spn, it does NOT already vanish at every
+    non-dependent pure endmember (only at diopside, r=0,s=0, where
+    H0=S0=V0=0 identically when clino - verified analytically and
+    numerically, not assumed). xMELTS' own gmixCpx explicitly subtracts a
+    mechanical-mixture "ENDMEMBERS" reference (each endmember's own
+    G(r=e_i,s*) via purePyx) before returning gmix; ported the same way:
+    `ends[i]` solves the SAME 2D order-parameter problem at each of the 7
+    pure-endmember r-vectors, and Gex = G(r,s*) - sum_i p_i*ends[i].
+    By the envelope theorem, dGex[i] = dG/dp_i - ends[i] (ends[i] doesn't
+    depend on the trial composition, only on T,P).
+
+    p<->r basis: p[0]=di,p[1]=cen,p[2]=hed,p[3]=cats(Al-Tschermak),
+    p[4]=buff(Fe3+-Tschermak),p[5]=ess,p[6]=jd - gh's direct mole-fraction
+    convention. r0=p2, r1=p3+p6/2, r2=p4-p6/2, r3=p5+p6/2, r4=p6, r5=p1 -
+    a genuine LINEAR SUBSTITUTION (not a relabeling like spn's r-basis
+    was), extracted directly from xMELTS' own FR2..FR7/ENDMEMBERS macros
+    (clinopyroxene.c lines 1924-1948: e.g. jadeite's own r-vector is
+    r=(0,0.5,-0.5,0.5,1,0), not a unit vector). di (p[0]) is the
+    dependent endmember.
+
+    Order-parameter separability: s0 (Al3+/Fe3+ ordering on M1+tet) and
+    s1 (Fe2+/Mg ordering on M1+M2) affect two COMPLETELY DISJOINT sets of
+    site fractions (confirmed directly from xMELTS' own order() variable
+    assignments) - so (unlike spn's 3-way-coupled s0/s1/s2) each 1D
+    sub-problem's bounds only need the OTHER order parameter as a fixed
+    linear offset. Solved via the same "bounds + bisection-on-sign,
+    Gauss-Seidel cycle to self-consistency" pattern as spn
+    (GH_cpx_bounds_s0/s1, GH_cpx_bisect1d, GH_cpx_solve_s_from), default
+    single-start (gv.gh_multistart_order=0) matching real MELTS' own
+    single Newton path; the starting guess is xMELTS' own ab-initio
+    formula from order() (site-ratio distribution), not invented.
+
+    Independently eps-clamping the 12 elementary site fractions does not
+    guarantee every SUM/DIFFERENCE of them used as a log() argument in
+    SIC/DGDR1/2/4/5 stays within (0,1) - GH_cpx_composites clamps those 7
+    composite quantities too (mirrors xMELTS' own order() guard "if
+    xmg2m1+xfe2m1(+xna1m2) >= 1.0, decrement xmg2m1/xfe2m1"). Verified
+    (standalone finite-difference script, scratchpad test_cpx2.c): Gex is
+    ~0 (to float noise) at all 7 pure endmembers and dGex matches central
+    finite differences to ~1e-6 relative, across a T/P/composition sweep
+    including near-endmember and near-Ti/Na-free compositions.
+*/
+    static const double H0 = 0, H027 = -16466.0265632, HS1 = -2677.12;
+    static const double HS1S1 = -8917.5, HS1S2 = 7804.93, HS2 = -9811.9766408;
+    static const double HS2S2 = 7460.595, HX2 = 7029.12, HX2S1 = -3819.645;
+    static const double HX2S2 = -3117.08, HX2S2S2 = 169.975, HX2X2 = -7029.12;
+    static const double HX2X2S2 = -339.95, HX2X2X7 = 339.95, HX2X3 = -8948.56;
+    static const double HX2X3S2 = 5177.7, HX2X3X7 = -679.9, HX2X4 = -18247.52;
+    static const double HX2X4S2 = 5177.7, HX2X4X7 = -679.9, HX2X5 = -20147.715;
+    static const double HX2X5S2 = 5177.7, HX2X5X7 = -679.9, HX2X6 = -5424.3875;
+    static const double HX2X6S2 = 2588.85, HX2X6X7 = -339.95, HX2X7 = 657.9867184;
+    static const double HX2X7S2 = 10695.35, HX2X7X7 = -1012.005, HX3 = 16318;
+    static const double HX3S1 = -19744.44, HX3S2 = 7537.4816796, HX3S2S2 = -5628.7875;
+    static const double HX3X3 = -16318, HX3X3S2 = 1464.4, HX3X3X7 = -1464.4;
+    static const double HX3X4 = -18357, HX3X4S2 = 2366.575, HX3X4X7 = -3491.025;
+    static const double HX3X5 = -5465.44, HX3X5S2 = 3491.025, HX3X5X7 = -2366.575;
+    static const double HX3X6 = 8160.4, HX3X6S2 = 1464.4, HX3X6X7 = -1464.4;
+    static const double HX3X7 = 22496.3516796, HX3X7S2 = 1234.28, HX3X7X7 = -1923.3325;
+    static const double HX4 = 18828, HX4S1 = 3347.06, HX4S2 = 7968.9216796;
+    static const double HX4S2S2 = -5628.7875, HX4X4 = -18828, HX4X4S2 = 1464.4;
+    static const double HX4X4X7 = -1464.4, HX4X5 = -15951.94, HX4X5S2 = 3491.025;
+    static const double HX4X5X7 = -2366.575, HX4X6 = 23252.15, HX4X6S2 = 2026.625;
+    static const double HX4X6X7 = -902.175, HX4X7 = 27147.9216796, HX4X7S2 = 1234.28;
+    static const double HX4X7X7 = -1923.3325, HX5 = 23597.12, HX5S1 = -2065.5;
+    static const double HX5S2 = -854.3466408, HX5S2S2 = -5347.675, HX5X5 = -9937;
+    static const double HX5X5S2 = 2588.85, HX5X5X7 = -339.95, HX5X6 = -16226.25;
+    static const double HX5X6S2 = 2588.85, HX5X6X7 = -339.95, HX5X7 = 17668.5133592;
+    static const double HX5X7S2 = 3697.61, HX5X7X7 = 258.885, HX6 = -13220.68;
+    static const double HX6S1 = -7322, HX6S2 = 7437.9366796, HX6S2S2 = -2673.8375;
+    static const double HX6X6 = 8735.875, HX6X6S2 = 787.76875, HX6X6X7 = 55.56875;
+    static const double HX6X7 = -651.4583204, HX6X7S2 = 1848.805, HX6X7X7 = 129.4425;
+    static const double HX7 = 11610.1033592, HX7S1 = 4240.94, HX7S2 = 5460.6166408;
+    static const double HX7S2S2 = -10695.35, HX7X7 = -17564.4583592, HX7X7S2 = -4246.76;
+    static const double HX7X7X7 = 590.99, S0 = 0, S027 = -4.32073312;
+    static const double SS1 = -0, SS1S1 = 0, SS1S2 = 0;
+    static const double SS2 = -1.08018328, SS2S2 = 0, SX2 = 0;
+    static const double SX2S1 = 0, SX2S2 = 0, SX2X2 = 0;
+    static const double SX2X3 = 0, SX2X4 = 0, SX2X5 = 0;
+    static const double SX2X6 = 0, SX2X7 = -5.8088564, SX2X7X7 = 3.64848984;
+    static const double SX3 = 0, SX3S1 = 0, SX3S2 = -0.54009164;
+    static const double SX3X3 = 0, SX3X4 = 0, SX3X5 = 0;
+    static const double SX3X6 = 0, SX3X7 = 0.35523636, SX3X7S2 = 0.91212246;
+    static const double SX3X7X7 = 0.91212246, SX4 = 0, SX4S1 = 0;
+    static const double SX4S2 = -0.54009164, SX4X4 = 0, SX4X5 = 0;
+    static const double SX4X6 = 0, SX4X7 = 0.35523636, SX4X7S2 = 0.91212246;
+    static const double SX4X7X7 = 0.91212246, SX5 = 0, SX5S1 = 0;
+    static const double SX5S2 = -1.08018328, SX5X5 = 0, SX5X6 = 0;
+    static const double SX5X7 = -0.18485528, SX5X7S2 = 1.82424492, SX5X7X7 = 1.82424492;
+    static const double SX6 = 0, SX6S1 = 0, SX6S2 = -0.54009164;
+    static const double SX6X6 = 0, SX6X7 = -0.09242764, SX6X7S2 = 0.91212246;
+    static const double SX6X7X7 = 0.91212246, SX7 = -3.97551128, SX7S1 = 0;
+    static const double SX7S2 = 2.9044282, SX7X7 = 5.7997562, SX7X7S2 = -1.82424492;
+    static const double SX7X7X7 = -1.82424492, V0 = 0, V027 = -0.0385316;
+    static const double VS1 = 0, VS1S1 = 0, VS1S2 = 0;
+    static const double VS2 = -0.0064949, VS2S2 = -0.089956, VX2 = 0;
+    static const double VX2S1 = 0, VX2S2 = 0.087864, VX2S2S2 = -0.005753;
+    static const double VX2X2 = -0, VX2X2S2 = 0.011506, VX2X2X7 = -0.011506;
+    static const double VX2X3 = -0, VX2X3S2 = -0.043932, VX2X3X7 = 0.023012;
+    static const double VX2X4 = -0, VX2X4S2 = -0.043932, VX2X4X7 = 0.023012;
+    static const double VX2X5 = -0, VX2X5S2 = -0.043932, VX2X5X7 = 0.023012;
+    static const double VX2X6 = -0, VX2X6S2 = -0.021966, VX2X6X7 = 0.011506;
+    static const double VX2X7 = -0.0862098, VX2X7S2 = -0.09937, VX2X7X7 = 0.08420296532;
+    static const double VX3 = 0, VX3S1 = 0, VX3S2 = 0.00878155;
+    static const double VX3S2S2 = 0.0509925, VX3X3 = 0, VX3X3S2 = -0.016736;
+    static const double VX3X3X7 = 0.016736, VX3X4 = 0, VX3X4S2 = -0.030857;
+    static const double VX3X4X7 = 0.036087, VX3X5 = 0, VX3X5S2 = -0.036087;
+    static const double VX3X5X7 = 0.030857, VX3X6 = 0, VX3X6S2 = -0.016736;
+    static const double VX3X6X7 = 0.016736, VX3X7 = -0.07179645, VX3X7S2 = -0.02928800867;
+    static const double VX3X7X7 = 0.02013549133, VX4 = 0, VX4S1 = 0;
+    static const double VX4S2 = 0.00878155, VX4S2S2 = 0.0509925, VX4X4 = 0;
+    static const double VX4X4S2 = -0.016736, VX4X4X7 = 0.016736, VX4X5 = 0;
+    static const double VX4X5S2 = -0.036087, VX4X5X7 = 0.030857, VX4X6 = 0;
+    static const double VX4X6S2 = -0.019351, VX4X6X7 = 0.014121, VX4X7 = -0.07179645;
+    static const double VX4X7S2 = -0.02928800867, VX4X7X7 = 0.02013549133, VX5 = 0;
+    static const double VX5S1 = 0, VX5S2 = 0.0091951, VX5S2S2 = 0.049685;
+    static const double VX5X5 = 0, VX5X5S2 = -0.021966, VX5X5X7 = 0.011506;
+    static const double VX5X6 = 0, VX5X6S2 = -0.021966, VX5X6X7 = 0.011506;
+    static const double VX5X7 = -0.0713829, VX5X7S2 = -0.03451801734, VX5X7X7 = 0.01621298266;
+    static const double VX6 = 0, VX6S1 = 0, VX6S2 = 0.00459755;
+    static const double VX6S2S2 = 0.0248425, VX6X6 = 0, VX6X6S2 = -0.00614525;
+    static const double VX6X6X7 = 0.00222275, VX6X7 = -0.03569145, VX6X7S2 = -0.01725900867;
+    static const double VX6X7X7 = 0.00810649133, VX7 = -0.0106789, VX7S1 = 0;
+    static const double VX7S2 = 0.01904688266, VX7S2S2 = 0.09937, VX7X7 = 0.04624288266;
+    static const double VX7X7S2 = -0.01255198266, VX7X7X7 = -0.04497798266;
+
+static void GH_cpx_site_fracs(double r0,double r1,double r2,double r3,double r4,double r5,double s0,double s1,
+    double *xal3m1,double *xfe2m1,double *xfe3m1,double *xmg2m1,double *xti4m1,
+    double *xca2m2,double *xfe2m2,double *xmg2m2,double *xna1m2,
+    double *xal3tet,double *xfe3tet,double *xsi4tet){
+    double eps = 1.0e-9, v;
+    v = (r1+r2)/2.0;                       *xti4m1  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = 1.0-r4-r5;                         *xca2m2  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = r4;                                *xna1m2  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = (4.0-2.0*r1-2.0*r2-2.0*r3+r4)/4.0; *xsi4tet = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = (2.0*r3+r4-2.0*s0)/4.0;            *xal3m1  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = (2.0*r0-r5-s1)/2.0;                *xfe2m1  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = (2.0*r3+r4+2.0*s0)/4.0;            *xfe3m1  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = 1.0-r0-r3-0.5*(r1+r2+r4-r5-s1);    *xmg2m1  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = (r5+s1)/2.0;                       *xfe2m2  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = (r5-s1)/2.0;                       *xmg2m2  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = (4.0*r1+2.0*r3-r4+2.0*s0)/8.0;     *xal3tet = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = (4.0*r2+2.0*r3-r4-2.0*s0)/8.0;     *xfe3tet = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+}
+
+static void GH_cpx_composites(double xmg2m1,double xfe2m1,double xti4m1,double xna1m2,double xsi4tet,
+    double *xm1_MgFeNoTi,double *xm1_notTi,double *xm1_MgFe,double *xtet_notSi,
+    double *xrest_notNa,double *xm1_notMgFe,double *xm2_notNa){
+    double eps = 1.0e-9, v;
+    v = xmg2m1+xfe2m1-xti4m1;     *xm1_MgFeNoTi = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = 1.0-xti4m1;               *xm1_notTi    = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = xmg2m1+xfe2m1;            *xm1_MgFe     = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = 1.0-xsi4tet;              *xtet_notSi   = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = 1.0-xmg2m1-xfe2m1-xna1m2; *xrest_notNa  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = 1.0-xmg2m1-xfe2m1;        *xm1_notMgFe  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = 1.0-xna1m2;               *xm2_notNa    = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+}
+
+static void GH_cpx_dgds(double r0,double r1,double r2,double r3,double r4,double r5,double s0,double s1,
+                         double T,double Rgas,double Pv,double *dgds0,double *dgds1){
+    double xal3m1,xfe2m1,xfe3m1,xmg2m1,xti4m1,xca2m2,xfe2m2,xmg2m2,xna1m2,xal3tet,xfe3tet,xsi4tet;
+    GH_cpx_site_fracs(r0,r1,r2,r3,r4,r5,s0,s1,&xal3m1,&xfe2m1,&xfe3m1,&xmg2m1,&xti4m1,&xca2m2,&xfe2m2,&xmg2m2,&xna1m2,&xal3tet,&xfe3tet,&xsi4tet);
+    *dgds0 = 0.5*Rgas*T*(log(xfe3m1)-log(xal3m1)+log(xal3tet)-log(xfe3tet)) +                ((HS1)-T*(SS1)+Pv*(VS1)) +                ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*r0 +                ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*r1 +                ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*r2 +                ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*r3 +                ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*r4 +                ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*r5 +                ((HS1S1)-T*(SS1S1)+Pv*(VS1S1))*s0*2.0 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s1;
+    *dgds1 = 0.5*Rgas*T*(log(xmg2m1)-log(xfe2m1)+log(xfe2m2)-log(xmg2m2)) +                ((HS2)-T*(SS2)+Pv*(VS2)) +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*r0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*r1 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*r2 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*r3 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*r4 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*r5 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s0 +                ((HS2S2)-T*(SS2S2)+Pv*(VS2S2))*s1*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*r0 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*r1 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*r2 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*r3 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*r4 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*r5 +                ((HX2S2S2)+Pv*(VX2S2S2))*r0*s1*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*r1 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*r2 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*r3 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*r4 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*r5 +                ((HX3S2S2)+Pv*(VX3S2S2))*r1*s1*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*r2 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*r3 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*r4 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*r5 +                ((HX4S2S2)+Pv*(VX4S2S2))*r2*s1*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*r3 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*r4 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*r5 +                ((HX5S2S2)+Pv*(VX5S2S2))*r3*s1*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*r4 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*r5 +                ((HX6S2S2)+Pv*(VX6S2S2))*r4*s1*2.0 +                ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*r5 +                ((HX7S2S2)+Pv*(VX7S2S2))*r5*s1*2.0;
+}
+
+static void GH_cpx_bounds_s0(double r1,double r2,double r3,double r4,double eps,double *lo,double *hi){
+    *lo = -1.0e6; *hi = 1.0e6;
+    double val, slope;
+    val = (2.0*r3+r4)/4.0;      slope = -0.5;  GH_narrow_bound(val,slope,eps,lo,hi); /* xal3m1  */
+    val = (2.0*r3+r4)/4.0;      slope =  0.5;  GH_narrow_bound(val,slope,eps,lo,hi); /* xfe3m1  */
+    val = (4.0*r1+2.0*r3-r4)/8.0; slope = 0.25; GH_narrow_bound(val,slope,eps,lo,hi); /* xal3tet */
+    val = (4.0*r2+2.0*r3-r4)/8.0; slope = -0.25; GH_narrow_bound(val,slope,eps,lo,hi); /* xfe3tet */
+}
+static void GH_cpx_bounds_s1(double r0,double r1,double r2,double r3,double r4,double r5,double eps,double *lo,double *hi){
+    *lo = -1.0e6; *hi = 1.0e6;
+    double val, slope;
+    val = (2.0*r0-r5)/2.0;                        slope = -0.5; GH_narrow_bound(val,slope,eps,lo,hi); /* xfe2m1 */
+    val = 1.0-r0-r3-0.5*(r1+r2+r4-r5);            slope =  0.5; GH_narrow_bound(val,slope,eps,lo,hi); /* xmg2m1 */
+    val = r5/2.0;                                  slope =  0.5; GH_narrow_bound(val,slope,eps,lo,hi); /* xfe2m2 */
+    val = r5/2.0;                                  slope = -0.5; GH_narrow_bound(val,slope,eps,lo,hi); /* xmg2m2 */
+}
+/* Hessian d2G/ds_i ds_j, from xMELTS' own D2GDS0S0/D2GDS0S1/D2GDS1S1
+   macros (clinopyroxene.c lines 2702-2720) - needed for the real joint
+   Newton solve below (not previously ported; an earlier version of this
+   port used a per-variable Gauss-Seidel/bisection cycle needing only
+   first derivatives). */
+static void GH_cpx_d2gds(double r0,double r1,double r2,double r3,double r4,double r5,double s0,double s1,
+                          double T,double Rgas,double Pv,double *d00,double *d01,double *d11){
+    double xal3m1,xfe2m1,xfe3m1,xmg2m1,xti4m1,xca2m2,xfe2m2,xmg2m2,xna1m2,xal3tet,xfe3tet,xsi4tet;
+    GH_cpx_site_fracs(r0,r1,r2,r3,r4,r5,s0,s1,&xal3m1,&xfe2m1,&xfe3m1,&xmg2m1,&xti4m1,&xca2m2,&xfe2m2,&xmg2m2,&xna1m2,&xal3tet,&xfe3tet,&xsi4tet);
+    *d00 = Rgas*T*(0.25/xfe3m1+0.25/xal3m1+0.125/xal3tet+0.125/xfe3tet) + 2.0*((HS1S1)-T*(SS1S1)+Pv*(VS1S1));
+    *d01 = ((HS1S2)-T*(SS1S2)+Pv*(VS1S2));
+    *d11 = Rgas*T*(0.25/xmg2m1+0.25/xfe2m1+0.25/xfe2m2+0.25/xmg2m2) + 2.0*((HS2S2)-T*(SS2S2)+Pv*(VS2S2))
+         + 2.0*r0*((HX2S2S2)+Pv*(VX2S2S2)) + 2.0*r1*((HX3S2S2)+Pv*(VX3S2S2)) + 2.0*r2*((HX4S2S2)+Pv*(VX4S2S2))
+         + 2.0*r3*((HX5S2S2)+Pv*(VX5S2S2)) + 2.0*r4*((HX6S2S2)+Pv*(VX6S2S2)) + 2.0*r5*((HX7S2S2)+Pv*(VX7S2S2));
+}
+/* Joint damped Newton solve for s0,s1 - ported directly from xMELTS' own
+   order() (clinopyroxene.c lines 3601-3675), which uses a genuine joint
+   2x2 Newton step (via gaussj, i.e. the real Hessian above) followed by
+   hard-clamping s0/s1 into their r-dependent feasible bounds - not the
+   per-variable Gauss-Seidel/bisection cycle an earlier version of this
+   port used (same story, and same fix, as spinel's solver - see
+   obj_gh_spn's header comment). Reuses GH_cpx_bounds_s0/s1 (already
+   verified equivalent to xMELTS' explicit MAX/MIN bound formulas) for
+   the clamp step instead of re-deriving xMELTS' explicit expressions. */
+static void GH_cpx_solve_s_from(double r0,double r1,double r2,double r3,double r4,double r5,double T,double Rgas,double Pv,
+                                 double s0init,double s1init,double *s0o,double *s1o){
+    const int maxIter = 1000; /* xMELTS' own maxIter (clinopyroxene.c) */
+    double eps_s = 1.0e-8;
+    double s0=s0init, s1=s1init;
+    double s0Old=2.0, s1Old=2.0; /* force >=1 iteration, matching xMELTS' sOld[i]=2.0 init */
+    int iter = 0;
+    while ( (fabs(s0-s0Old) > 10.0*2.220446049250313e-16 ||
+             fabs(s1-s1Old) > 10.0*2.220446049250313e-16) && iter < maxIter ){
+        double dgds0, dgds1;
+        GH_cpx_dgds(r0,r1,r2,r3,r4,r5,s0,s1,T,Rgas,Pv,&dgds0,&dgds1);
+        double d00, d01, d11;
+        GH_cpx_d2gds(r0,r1,r2,r3,r4,r5,s0,s1,T,Rgas,Pv,&d00,&d01,&d11);
+
+        s0Old = s0; s1Old = s1;
+
+        double det = d00*d11 - d01*d01;
+        double deltaS0 = -( d11*dgds0 - d01*dgds1)/det;
+        double deltaS1 = -(-d01*dgds0 + d00*dgds1)/det;
+
+        double sN0 = s0Old + deltaS0, sN1 = s1Old + deltaS1;
+        double lo, hi;
+        GH_cpx_bounds_s0(r1,r2,r3,r4,eps_s,&lo,&hi);
+        if (sN0 < lo){ sN0 = lo; } if (sN0 > hi){ sN0 = hi; }
+        GH_cpx_bounds_s1(r0,r1,r2,r3,r4,r5,eps_s,&lo,&hi);
+        if (sN1 < lo){ sN1 = lo; } if (sN1 > hi){ sN1 = hi; }
+        s0 = sN0; s1 = sN1;
+        iter++;
+    }
+    *s0o = s0; *s1o = s1;
+}
+/* xMELTS' own ab-initio starting guess (order()'s "distribute cations
+   proportional to available site" formula), used both for the trial
+   composition and every fixed endmember corner below. */
+static void GH_cpx_guess_s(double r0,double r1,double r2,double r3,double r4,double r5,double *s0g,double *s1g){
+    double totAl=r1+r3, totCa=1.0-r4-r5, totFe2=r0, totFe3=r2+r3;
+    double totMg=1.0-r0-0.5*(r1+r2)-r3-0.5*r4+r5, totNa=r4, totTi=0.5*(r1+r2);
+    double totM2=totCa+totNa, totM1=totTi+(totMg+totFe2-(1.0-totM2));
+    *s0g = (totFe3+totAl != 0.0) ? (1.0-totM1)*(totFe3-totAl)/(totFe3+totAl) : 0.0;
+    *s1g = (totFe2+totMg != 0.0) ? (1.0-totM2)*(totFe2-totMg)/(totFe2+totMg) : 0.0;
+}
+static double GH_cpx_G_at(double r0,double r1,double r2,double r3,double r4,double r5,double s0,double s1,
+                           double T,double Rgas,double Pv){
+    double xal3m1,xfe2m1,xfe3m1,xmg2m1,xti4m1,xca2m2,xfe2m2,xmg2m2,xna1m2,xal3tet,xfe3tet,xsi4tet;
+    GH_cpx_site_fracs(r0,r1,r2,r3,r4,r5,s0,s1,&xal3m1,&xfe2m1,&xfe3m1,&xmg2m1,&xti4m1,&xca2m2,&xfe2m2,&xmg2m2,&xna1m2,&xal3tet,&xfe3tet,&xsi4tet);
+    double xm1_MgFeNoTi,xm1_notTi,xm1_MgFe,xtet_notSi,xrest_notNa,xm1_notMgFe,xm2_notNa;
+    GH_cpx_composites(xmg2m1,xfe2m1,xti4m1,xna1m2,xsi4tet,&xm1_MgFeNoTi,&xm1_notTi,&xm1_MgFe,&xtet_notSi,&xrest_notNa,&xm1_notMgFe,&xm2_notNa);
+    double SIC = -Rgas*(xmg2m1*log(xmg2m1)                + xfe2m1*log(xfe2m1)                + xal3m1*log(xal3m1)                + xfe3m1*log(xfe3m1)                + xti4m1*log(xti4m1)                + (xm1_MgFeNoTi)*log(xm1_MgFeNoTi)                - (xm1_notTi)*log(xm1_notTi)                - (xm1_MgFe)*log(xm1_MgFe)                - 2.0*(xtet_notSi)*log(xtet_notSi)                + 2.0*xal3tet*log(xal3tet)                + 2.0*xfe3tet*log(xfe3tet)                + xca2m2*log(xca2m2)                + xna1m2*log(xna1m2)                + xmg2m2*log(xmg2m2)                + xfe2m2*log(xfe2m2)                + (xrest_notNa)*log(xrest_notNa)                - (xm1_notMgFe)*log(xm1_notMgFe)                - (xm2_notNa)*log(xm2_notNa) );
+    return -T*(SIC) + (H0)-T*(S0)+Pv*(V0) +              ((HX2)-T*(SX2)+Pv*(VX2))*r0 +              ((HX3)-T*(SX3)+Pv*(VX3))*r1 +              ((HX4)-T*(SX4)+Pv*(VX4))*r2 +              ((HX5)-T*(SX5)+Pv*(VX5))*r3 +              ((HX6)-T*(SX6)+Pv*(VX6))*r4 +              ((HX7)-T*(SX7)+Pv*(VX7))*r5 +              ((HS1)-T*(SS1)+Pv*(VS1))*s0 +              ((HS2)-T*(SS2)+Pv*(VS2))*s1 +              ((HX2X2)-T*(SX2X2)+Pv*(VX2X2))*r0*r0 +              ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r0*r1 +              ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r0*r2 +              ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r0*r3 +              ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r0*r4 +              ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r0*r5 +              ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*r0*s0 +              ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*r0*s1 +              ((HX3X3)-T*(SX3X3)+Pv*(VX3X3))*r1*r1 +              ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r1*r2 +              ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r1*r3 +              ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r1*r4 +              ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r1*r5 +              ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*r1*s0 +              ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*r1*s1 +              ((HX4X4)-T*(SX4X4)+Pv*(VX4X4))*r2*r2 +              ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r2*r3 +              ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r2*r4 +              ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r2*r5 +              ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*r2*s0 +              ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*r2*s1 +              ((HX5X5)-T*(SX5X5)+Pv*(VX5X5))*r3*r3 +              ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r3*r4 +              ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r3*r5 +              ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*r3*s0 +              ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*r3*s1 +              ((HX6X6)-T*(SX6X6)+Pv*(VX6X6))*r4*r4 +              ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r4*r5 +              ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*r4*s0 +              ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*r4*s1 +              ((HX7X7)-T*(SX7X7)+Pv*(VX7X7))*r5*r5 +              ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*r5*s0 +              ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*r5*s1 +              ((HS1S1)-T*(SS1S1)+Pv*(VS1S1))*s0*s0 +              ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s0*s1 +              ((HS2S2)-T*(SS2S2)+Pv*(VS2S2))*s1*s1 +              ((HX2X2X7)+Pv*(VX2X2X7))*r0*r0*r5 +              ((HX2X2S2)+Pv*(VX2X2S2))*r0*r0*s1 +              ((HX2X3X7)+Pv*(VX2X3X7))*r0*r1*r5 +              ((HX2X3S2)+Pv*(VX2X3S2))*r0*r1*s1 +              ((HX2X4X7)+Pv*(VX2X4X7))*r0*r2*r5 +              ((HX2X4S2)+Pv*(VX2X4S2))*r0*r2*s1 +              ((HX2X5X7)+Pv*(VX2X5X7))*r0*r3*r5 +              ((HX2X5S2)+Pv*(VX2X5S2))*r0*r3*s1 +              ((HX2X6X7)+Pv*(VX2X6X7))*r0*r4*r5 +              ((HX2X6S2)+Pv*(VX2X6S2))*r0*r4*s1 +              ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r0*r5*r5 +              ((HX2X7S2)+Pv*(VX2X7S2))*r0*r5*s1 +              ((HX2S2S2)+Pv*(VX2S2S2))*r0*s1*s1 +              ((HX3X3X7)+Pv*(VX3X3X7))*r1*r1*r5 +              ((HX3X3S2)+Pv*(VX3X3S2))*r1*r1*s1 +              ((HX3X4X7)+Pv*(VX3X4X7))*r1*r2*r5 +              ((HX3X4S2)+Pv*(VX3X4S2))*r1*r2*s1 +              ((HX3X5X7)+Pv*(VX3X5X7))*r1*r3*r5 +              ((HX3X5S2)+Pv*(VX3X5S2))*r1*r3*s1 +              ((HX3X6X7)+Pv*(VX3X6X7))*r1*r4*r5 +              ((HX3X6S2)+Pv*(VX3X6S2))*r1*r4*s1 +              ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r1*r5*r5 +              ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*r5*s1 +              ((HX3S2S2)+Pv*(VX3S2S2))*r1*s1*s1 +              ((HX4X4X7)+Pv*(VX4X4X7))*r2*r2*r5 +              ((HX4X4S2)+Pv*(VX4X4S2))*r2*r2*s1 +              ((HX4X5X7)+Pv*(VX4X5X7))*r2*r3*r5 +              ((HX4X5S2)+Pv*(VX4X5S2))*r2*r3*s1 +              ((HX4X6X7)+Pv*(VX4X6X7))*r2*r4*r5 +              ((HX4X6S2)+Pv*(VX4X6S2))*r2*r4*s1 +              ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r2*r5*r5 +              ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*r5*s1 +              ((HX4S2S2)+Pv*(VX4S2S2))*r2*s1*s1 +              ((HX5X5X7)+Pv*(VX5X5X7))*r3*r3*r5 +              ((HX5X5S2)+Pv*(VX5X5S2))*r3*r3*s1 +              ((HX5X6X7)+Pv*(VX5X6X7))*r3*r4*r5 +              ((HX5X6S2)+Pv*(VX5X6S2))*r3*r4*s1 +              ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r3*r5*r5 +              ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*r5*s1 +              ((HX5S2S2)+Pv*(VX5S2S2))*r3*s1*s1 +              ((HX6X6X7)+Pv*(VX6X6X7))*r4*r4*r5 +              ((HX6X6S2)+Pv*(VX6X6S2))*r4*r4*s1 +              ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r4*r5*r5 +              ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*r5*s1 +              ((HX6S2S2)+Pv*(VX6S2S2))*r4*s1*s1 +              ((HX7X7X7)-T*(SX7X7X7)+Pv*(VX7X7X7))*r5*r5*r5 +              ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*r5*s1 +              ((HX7S2S2)+Pv*(VX7S2S2))*r5*s1*s1;
+}
+/* Solve the embedded order-parameter problem at a FIXED r-vector (used
+   only for the trial composition itself - see GH_cpx_pure_ES_G below for
+   why the 7 pure-endmember reference values do NOT need this) and return
+   G(r,s*) there. */
+static double GH_cpx_solve_and_G(double r0,double r1,double r2,double r3,double r4,double r5,
+                                  double T,double Rgas,double Pv,double *s0o,double *s1o){
+    double s0g,s1g; GH_cpx_guess_s(r0,r1,r2,r3,r4,r5,&s0g,&s1g);
+    double cs0,cs1; GH_cpx_solve_s_from(r0,r1,r2,r3,r4,r5,T,Rgas,Pv,s0g,s1g,&cs0,&cs1);
+    *s0o = cs0; *s1o = cs1;
+    return GH_cpx_G_at(r0,r1,r2,r3,r4,r5,cs0,cs1,T,Rgas,Pv);
+}
+
+/**
+    Pure-endmember reference values ("ends[]"), matching xMELTS' own
+    purePyx (NOT a re-run of the solid-solution's order() problem at each
+    corner - a brute-force earlier version of this port did that, and got
+    numerically correct but needlessly expensive results). Direct
+    inspection of purePyx shows DI_G/EN_G/HD_G/CA_G/CF_G/JD_G are CLOSED
+    FORM (s fixed at implicit exact values baked into the macro, no
+    solve), and only ES_G needs an iterative solve - of a *different*,
+    single-variable Landau order parameter specific to pure essenite
+    (xMELTS' own separate `pureOrder` function), not the solid-solution's
+    s0/s1.
+
+    Better still: DI_G=EN_G=HD_G=CA_G=CF_G=JD_G are all EXACTLY 0, for
+    every T,P - not approximately, verified by direct numeric summation
+    of the extracted Taylor coefficients (H/S/V parts each individually
+    cancel to 0.0, JD to -3.6e-12 = float noise). This isn't a
+    coincidence: clino=TRUE zeroes every vertex H_i/S_i/V_i (i=1..7), and
+    these six closed-form macros are literally that vertex's own
+    H_i-T*S_i+(P-1)*V_i. Only essenite has a genuine nonzero reference
+    value, from its own intrinsic Al3+/Fe3+ ordering entropy (the log(1+-s)
+    term in ES_G/ES_S, which survives even though essenite's own H5/S5/V5
+    are also 0). So Emix = p[5]*ends[5] - only essenite's own mole
+    fraction matters.
+*/
+static double GH_cpx_pure_ES_dgds(double s,double T,double Rgas,double Pv){
+    return Rgas*T*(log(1.0+s)-log(1.0-s)) + (HS1) + (HX5S1) + (HS1S1)*s*2.0
+         - T*((SS1)+(SX5S1)+(SS1S1)*s*2.0) + Pv*((VS1)+(VX5S1)+(VS1S1)*s*2.0);
+}
+static double GH_cpx_pure_ES_G_at_s(double s,double T,double Rgas,double Pv){
+    return Rgas*T*((1.0-s)*log(1.0-s) + (1.0+s)*log(1.0+s) - 2.0*log(2.0))
+         + (H0)+(HX5)+(HS1)*s+(HX5X5)+(HX5S1)*s+(HS1S1)*s*s
+         - T*((S0)+(SX5)+(SS1)*s+(SX5X5)+(SX5S1)*s+(SS1S1)*s*s)
+         + Pv*((V0)+(VX5)+(VS1)*s+(VX5X5)+(VS1S1)*s*s+(VX5S1)*s);
+}
+static double GH_cpx_pure_ES_G(double T,double Rgas,double Pv){
+    double eps = 1.0e-8, lo = -1.0+eps, hi = 1.0-eps;
+    double fa = GH_cpx_pure_ES_dgds(lo,T,Rgas,Pv), fb = GH_cpx_pure_ES_dgds(hi,T,Rgas,Pv);
+    double a = lo, b = hi;
+    if (fa > 0.0 && fb > 0.0){ a = b = lo; }
+    else if (fa < 0.0 && fb < 0.0){ a = b = hi; }
+    else {
+        for (int it = 0; it < 80; it++){
+            double mid = 0.5*(a+b), fm = GH_cpx_pure_ES_dgds(mid,T,Rgas,Pv);
+            if ((fa > 0.0) == (fm > 0.0)){ a = mid; fa = fm; } else { b = mid; }
+            if (b-a < 1.0e-14){ break; }
+        }
+    }
+    return GH_cpx_pure_ES_G_at_s(0.5*(a+b),T,Rgas,Pv);
+}
+
+double obj_gh_cpx(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    double T    = d->T;
+    double Rgas = d->R*1000.0;
+    double Pv   = d->P - 1.0;
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 7; i++){ p[i] = x[i]; }
+    double p1=p[1], p2=p[2], p3=p[3], p4=p[4], p5=p[5], p6=p[6];
+
+    /* r-basis (xMELTS' own convention - see this function's header comment) */
+    double r0=p2, r1=p3+0.5*p6, r2=p4-0.5*p6, r3=p5+0.5*p6, r4=p6, r5=p1;
+
+    double s0, s1;
+    double Graw = GH_cpx_solve_and_G(r0,r1,r2,r3,r4,r5,T,Rgas,Pv,&s0,&s1);
+
+    double xal3m1,xfe2m1,xfe3m1,xmg2m1,xti4m1,xca2m2,xfe2m2,xmg2m2,xna1m2,xal3tet,xfe3tet,xsi4tet;
+    GH_cpx_site_fracs(r0,r1,r2,r3,r4,r5,s0,s1,&xal3m1,&xfe2m1,&xfe3m1,&xmg2m1,&xti4m1,&xca2m2,&xfe2m2,&xmg2m2,&xna1m2,&xal3tet,&xfe3tet,&xsi4tet);
+    double xm1_MgFeNoTi,xm1_notTi,xm1_MgFe,xtet_notSi,xrest_notNa,xm1_notMgFe,xm2_notNa;
+    GH_cpx_composites(xmg2m1,xfe2m1,xti4m1,xna1m2,xsi4tet,&xm1_MgFeNoTi,&xm1_notTi,&xm1_MgFe,&xtet_notSi,&xrest_notNa,&xm1_notMgFe,&xm2_notNa);
+
+    double dgdr0 = Rgas*T*(log(xfe2m1) - log(xmg2m1)) +                ((HX2)-T*(SX2)+Pv*(VX2)) +                ((HX2X2)-T*(SX2X2)+Pv*(VX2X2))*r0*2.0 +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r1 +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r2 +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r3 +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r4 +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r5 +                ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*s0 +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r5*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*s1*2.0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r1*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r1*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r2*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r2*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r3*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r3*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r4*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r4*s1 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r5*r5 +                ((HX2X7S2)+Pv*(VX2X7S2))*r5*s1 +                ((HX2S2S2)+Pv*(VX2S2S2))*s1*s1;
+    double dgdr1 = Rgas*T*(0.5*log(xti4m1) - 0.5*log(xmg2m1) + 0.5*log(xm1_notTi)                  - log(xm1_MgFeNoTi) + 0.5*log(xm1_MgFe)                  + 0.5*log(xrest_notNa) - log(xtet_notSi)                  - 0.5*log(xm1_notMgFe) + log(xal3tet)) +                ((HX3)-T*(SX3)+Pv*(VX3)) +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r0 +                ((HX3X3)-T*(SX3X3)+Pv*(VX3X3))*r1*2.0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r2 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r3 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r4 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r5 +                ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*s0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*s1 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r5*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*s1*2.0 +                ((HX3X4X7)+Pv*(VX3X4X7))*r2*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r2*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r3*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r3*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r4*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r4*s1 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r5*r5 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r5*s1 +                ((HX3S2S2)+Pv*(VX3S2S2))*s1*s1;
+    double dgdr2 = Rgas*T*(0.5*log(xti4m1) - 0.5*log(xmg2m1) + 0.5*log(xm1_notTi)                  - log(xm1_MgFeNoTi) + 0.5*log(xm1_MgFe)                  + 0.5*log(xrest_notNa) - log(xtet_notSi)                  - 0.5*log(xm1_notMgFe) + log(xfe3tet)) +                ((HX4)-T*(SX4)+Pv*(VX4)) +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r1 +                ((HX4X4)-T*(SX4X4)+Pv*(VX4X4))*r2*2.0 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r3 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r4 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r5 +                ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*s0 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*s1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r5*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*s1*2.0 +                ((HX4X5X7)+Pv*(VX4X5X7))*r3*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r3*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r4*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r4*s1 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r5*r5 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r5*s1 +                ((HX4S2S2)+Pv*(VX4S2S2))*s1*s1;
+    double dgdr3 = Rgas*T*(0.5*log(xal3m1) + 0.5*log(xfe3m1) - log(xmg2m1)                  - log(xm1_MgFeNoTi) + log(xm1_MgFe)                  - log(xtet_notSi) + 0.5*log(xal3tet) + 0.5*log(xfe3tet)                  + log(xrest_notNa) - log(xm1_notMgFe)) +                ((HX5)-T*(SX5)+Pv*(VX5)) +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r0 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r1 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r2 +                ((HX5X5)-T*(SX5X5)+Pv*(VX5X5))*r3*2.0 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r4 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r5 +                ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*s0 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*s1 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r5*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*s1*2.0 +                ((HX5X6X7)+Pv*(VX5X6X7))*r4*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r4*s1 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r5*r5 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r5*s1 +                ((HX5S2S2)+Pv*(VX5S2S2))*s1*s1;
+    double dgdr4 = Rgas*T*(0.25*log(xal3m1) + 0.25*log(xfe3m1) - 0.5*log(xmg2m1)                  - 0.5*log(xm1_MgFeNoTi) + 0.5*log(xm1_MgFe)                  + 0.5*log(xtet_notSi) - 0.25*log(xal3tet)                  - 0.25*log(xfe3tet) - log(xca2m2) + log(xna1m2)                  - 0.5*log(xrest_notNa)                  - 0.5*log(xm1_notMgFe) + log(xm2_notNa)) +                ((HX6)-T*(SX6)+Pv*(VX6)) +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r0 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r1 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r2 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r3 +                ((HX6X6)-T*(SX6X6)+Pv*(VX6X6))*r4*2.0 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r5 +                ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*s0 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*s1 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r5*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*s1*2.0 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r5*r5 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r5*s1 +                ((HX6S2S2)+Pv*(VX6S2S2))*s1*s1;
+    double dgdr5 = 0.5*Rgas*T*(log(xmg2m1) - 2.0*log(xca2m2)                  + log(xmg2m2) + log(xfe2m2/xfe2m1)) +                ((HX7)-T*(SX7)+Pv*(VX7)) +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r0 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r1 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r2 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r3 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r4 +                ((HX7X7)-T*(SX7X7)+Pv*(VX7X7))*r5*2.0 +                ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*s0 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r2 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r3 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r4 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r0*r5*2.0 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r2 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r3 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r4 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r1*r5*2.0 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r2 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r3 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r4 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r2*r5*2.0 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r3 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r4 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r3*r5*2.0 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r4 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r4*r5*2.0 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*s1 +                ((HX7X7X7)-T*(SX7X7X7)+Pv*(VX7X7X7))*r5*r5*3.0 +                ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*s1*2.0 +                ((HX7S2S2)+Pv*(VX7S2S2))*s1*s1;
+
+    /* ends[]: see GH_cpx_pure_ES_G's header comment - DI/EN/HD/CA/CF/JD are
+       exactly 0 (proven, T,P-independent), only essenite is nonzero and
+       needs a (cheap, 1D) solve. */
+    double es_end = GH_cpx_pure_ES_G(T,Rgas,Pv);
+
+    double Emix = p5*es_end;
+    double Gex = Graw - Emix;
+
+    double dGex[7];
+    dGex[0] = 0.0;
+    dGex[1] = dgdr5;
+    dGex[2] = dgdr0;
+    dGex[3] = dgdr1;
+    dGex[4] = dgdr2;
+    dGex[5] = dgdr3 - es_end;
+    dGex[6] = 0.5*dgdr1 - 0.5*dgdr2 + 0.5*dgdr3 + dgdr4;
+
+    for (int i = 0; i < 7; i++){
+        double mu = Gex;
+        for (int k = 0; k < 7; k++){
+            double delta_ik = (i==k) ? 1.0 : 0.0;
+            mu += (delta_ik - p[k])*dGex[k];
+        }
+        mu_Gex[i] = mu/1000.0;
+        d->sf[i]  = p[i];
+    }
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 7; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = 0.0;
+    for (int i = 0; i < 7; i++){ d->df_raw += (mu_Gex[i] + gb[i])*p[i]; }
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        for (int i = 0; i < 7; i++){
+            grad[i] = (mu_Gex[i] + gb[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+        }
+    }
+    return d->df;
+}
+
+/**
+    Orthopyroxene: real MELTS' "orthopyroxene" phase uses the exact same
+    energetics as "clinopyroxene" (see obj_gh_cpx's header comment - both
+    source files hardcode clino=TRUE). Registered as a separate gh
+    solution phase purely so MAGEMin's own phase competition can select
+    cpx vs opx by stability, matching how the two coexist in real rocks
+    and in MELTS' own phase list.
+*/
+double obj_gh_opx(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    return obj_gh_cpx(n, x, grad, SS_ref_db);
+}
+
 void GH_SS_objective_init_function(    obj_type            *SS_objective,
                                         global_variable      gv                  ){
+    GH_spn_multistart_flag = gv.gh_multistart_order;
     for (int iss = 0; iss < gv.len_ss; iss++){
         if (strcmp( gv.SS_list[iss], "liq") == 0 ){
             SS_objective[iss] = obj_gh_liq;
@@ -803,6 +1879,18 @@ void GH_SS_objective_init_function(    obj_type            *SS_objective,
         }
         else if (strcmp( gv.SS_list[iss], "mel") == 0 ){
             SS_objective[iss] = obj_gh_mel;
+        }
+        else if (strcmp( gv.SS_list[iss], "cum") == 0 ){
+            SS_objective[iss] = obj_gh_cum;
+        }
+        else if (strcmp( gv.SS_list[iss], "spn") == 0 ){
+            SS_objective[iss] = obj_gh_spn;
+        }
+        else if (strcmp( gv.SS_list[iss], "cpx") == 0 ){
+            SS_objective[iss] = obj_gh_cpx;
+        }
+        else if (strcmp( gv.SS_list[iss], "opx") == 0 ){
+            SS_objective[iss] = obj_gh_opx;
         }
     }
 }
@@ -834,6 +1922,18 @@ void GH_PC_init(                       PC_type             *PC_read,
         else if (strcmp( gv.SS_list[iss], "mel") == 0 ){
             PC_read[iss] = obj_gh_mel;
         }
+        else if (strcmp( gv.SS_list[iss], "cum") == 0 ){
+            PC_read[iss] = obj_gh_cum;
+        }
+        else if (strcmp( gv.SS_list[iss], "spn") == 0 ){
+            PC_read[iss] = obj_gh_spn;
+        }
+        else if (strcmp( gv.SS_list[iss], "cpx") == 0 ){
+            PC_read[iss] = obj_gh_cpx;
+        }
+        else if (strcmp( gv.SS_list[iss], "opx") == 0 ){
+            PC_read[iss] = obj_gh_opx;
+        }
     }
 }
 
@@ -864,7 +1964,11 @@ void GH_P2X_init(                      P2X_type            *P2X_read,
             strcmp( gv.SS_list[iss], "g")   == 0 ||
             strcmp( gv.SS_list[iss], "hb")  == 0 ||
             strcmp( gv.SS_list[iss], "lc")  == 0 ||
-            strcmp( gv.SS_list[iss], "mel") == 0){
+            strcmp( gv.SS_list[iss], "mel") == 0 ||
+            strcmp( gv.SS_list[iss], "cum") == 0 ||
+            strcmp( gv.SS_list[iss], "spn") == 0 ||
+            strcmp( gv.SS_list[iss], "cpx") == 0 ||
+            strcmp( gv.SS_list[iss], "opx") == 0){
             P2X_read[iss] = p2x_gh_generic;
         }
     }

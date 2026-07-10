@@ -3,6 +3,7 @@
  **   Project      : MAGEMin
  **   License      : GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
  **   Developers   : Nicolas Riel, Boris Kaus
+ **   Contributors : Nickolas B. Moccetti, Dominguez, H., Assunção J., Green E., Berlie N., and Rummel L.
  **   Organization : Institute of Geosciences, Johannes-Gutenberg University, Mainz
  **   Contact      : nriel[at]uni-mainz.de, kaus[at]uni-mainz.de
  **
@@ -82,7 +83,7 @@
     PP_db_gh_beta Access_GH_SiO2_beta_DB(int id);
     int           GH_find_SiO2_beta_id(char *name);
 
-    #define GH_N_PP 37
+    #define GH_N_PP 51
 
     PP_db_gh Access_GH_PP_DB(int id);
     int      GH_find_PP_id(char *name);

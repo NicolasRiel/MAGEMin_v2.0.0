@@ -3,6 +3,7 @@
  **   Project      : MAGEMin
  **   License      : GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
  **   Developers   : Nicolas Riel, Boris Kaus
+ **   Contributors : Nickolas B. Moccetti, Dominguez, H., Assunção J., Green E., Berlie N., and Rummel L.
  **   Organization : Institute of Geosciences, Johannes-Gutenberg University, Mainz
  **   Contact      : nriel[at]uni-mainz.de, kaus[at]uni-mainz.de
  **
@@ -20,6 +21,10 @@ double obj_gh_g(unsigned n, const double *x, double *grad, void *SS_ref_db);
 double obj_gh_hb(unsigned n, const double *x, double *grad, void *SS_ref_db);
 double obj_gh_lc(unsigned n, const double *x, double *grad, void *SS_ref_db);
 double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db);
+double obj_gh_cum(unsigned n, const double *x, double *grad, void *SS_ref_db);
+double obj_gh_spn(unsigned n, const double *x, double *grad, void *SS_ref_db);
+double obj_gh_cpx(unsigned n, const double *x, double *grad, void *SS_ref_db);
+double obj_gh_opx(unsigned n, const double *x, double *grad, void *SS_ref_db);
 
 void GH_SS_objective_init_function(    obj_type            *SS_objective,
                                         global_variable      gv                  );

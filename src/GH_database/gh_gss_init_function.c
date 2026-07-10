@@ -3,6 +3,7 @@
  **   Project      : MAGEMin
  **   License      : GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
  **   Developers   : Nicolas Riel, Boris Kaus
+ **   Contributors : Nickolas B. Moccetti, Dominguez, H., Assunção J., Green E., Berlie N., and Rummel L.
  **   Organization : Institute of Geosciences, Johannes-Gutenberg University, Mainz
  **   Contact      : nriel[at]uni-mainz.de, kaus[at]uni-mainz.de
  **
@@ -187,6 +188,51 @@ SS_ref G_SS_gh_mel_init_function(SS_ref SS_ref_db, global_variable gv){
     return SS_ref_db;
 }
 
+SS_ref G_SS_gh_cum_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 2;
+    SS_ref_db.n_em      = 2;
+    SS_ref_db.n_sf      = 2;
+    SS_ref_db.n_w       = 1;
+
+    return SS_ref_db;
+}
+
+SS_ref G_SS_gh_spn_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 5;
+    SS_ref_db.n_em      = 5;
+    SS_ref_db.n_sf      = 5;
+    SS_ref_db.n_w       = 1;
+
+    return SS_ref_db;
+}
+
+/** Clinopyroxene and orthopyroxene (Di-Cen-Hed-CaTs(Al)-CaTs(Fe3+)-Ess-Jd):
+    NR=6/NA=7, gh's largest phase - see obj_gh_cpx in
+    gh_objective_functions.c for why both share the same init shape. */
+SS_ref G_SS_gh_cpx_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 7;
+    SS_ref_db.n_em      = 7;
+    SS_ref_db.n_sf      = 7;
+    SS_ref_db.n_w       = 1;
+
+    return SS_ref_db;
+}
+SS_ref G_SS_gh_opx_init_function(SS_ref SS_ref_db, global_variable gv){
+    return G_SS_gh_cpx_init_function(SS_ref_db, gv);
+}
+
 void GH_SS_init(            SS_init_type        *SS_init,
                             global_variable      gv              ){
 
@@ -214,6 +260,18 @@ void GH_SS_init(            SS_init_type        *SS_init,
         }
         else if (strcmp( gv.SS_list[iss], "mel") == 0 ){
             SS_init[iss]  = G_SS_gh_mel_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "cum") == 0 ){
+            SS_init[iss]  = G_SS_gh_cum_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "spn") == 0 ){
+            SS_init[iss]  = G_SS_gh_spn_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "cpx") == 0 ){
+            SS_init[iss]  = G_SS_gh_cpx_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "opx") == 0 ){
+            SS_init[iss]  = G_SS_gh_opx_init_function;
         }
         else{
             printf("\nsolid solution '%s' is not in the 'gh' database, cannot be initiated\n", gv.SS_list[iss]);

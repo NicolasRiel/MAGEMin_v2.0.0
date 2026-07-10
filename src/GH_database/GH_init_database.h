@@ -3,6 +3,7 @@
  **   Project      : MAGEMin
  **   License      : GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
  **   Developers   : Nicolas Riel, Boris Kaus
+ **   Contributors : Nickolas B. Moccetti, Dominguez, H., Assunção J., Green E., Berlie N., and Rummel L.
  **   Organization : Institute of Geosciences, Johannes-Gutenberg University, Mainz
  **   Contact      : nriel[at]uni-mainz.de, kaus[at]uni-mainz.de
  **
@@ -21,7 +22,7 @@
         H2O - see GH_PP_endmembers.h) plus andalusite/kyanite (not in
         xMELTS itself, ported from Theriak-Domino's Berman 1988 database,
         cross-validated against xMELTS' sillimanite - see
-        GH_PP_endmembers.c); 7 solution phases: "liq", the 4 "sb-trivial"
+        GH_PP_endmembers.c); 10 solution phases: "liq", the 4 "sb-trivial"
         mineral solid solutions - olivine ("ol"), feldspar ("fsp"), biotite
         ("bi"), garnet ("g") - whose xMELTS mixing model is plain
         ideal+regular on a single site with no internal order parameter,
@@ -30,7 +31,14 @@
         leucite-analcime-na-leucite), both NS=0 (no internal order
         parameter) in real xMELTS too, so they follow the exact same
         direct-p=x pattern despite their richer (multi-site or coupled)
-        entropy-of-mixing formulas - see gh_objective_functions.c.
+        entropy-of-mixing formulas, plus melilite ("mel", NS=1, the first
+        phase needing an embedded order-parameter Newton/bisection solve),
+        cummingtonite ("cum", cummingtonite-grunerite, NS=2, a genuine 2D
+        embedded order-parameter solve for M4/M1+M3/M2 site Fe-Mg
+        ordering), and spinel ("spn", chromite-hercynite-magnetite-spinel-
+        ulvospinel, NR=4/NS=3, gh's first 3D embedded order-parameter
+        solve, using nonlinear Gauss-Seidel over robust 1D bisections
+        rather than a joint Newton step - see gh_objective_functions.c.
     **/
     typedef struct gh_datasets {
         int     ds_version;
@@ -39,11 +47,11 @@
         int     n_ss;
         char    ox[13][20];
         char    PP[18][20];
-        char    SS[8][20];
+        char    SS[12][20];
 
-        int     verifyPC[8];
-        int     n_SS_PC[8];
-        double  SS_PC_stp[8];
+        int     verifyPC[12];
+        int     n_SS_PC[12];
+        double  SS_PC_stp[12];
 
         double  PC_df_add;
         double  solver_switch_T;
