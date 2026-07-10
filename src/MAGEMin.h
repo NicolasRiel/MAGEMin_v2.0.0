@@ -215,6 +215,14 @@ typedef struct global_variables {
 	double   bnd_val;			/** boundary value for x-eos when the fraction of an endmember = 0. */
 	double   obj_refine_fac;    /** how much the residual of the objective function is refined during iterations */
 
+	/* "liq" redundant-occurrence pseudocompound synthesis (ss_min_LP, gh and tc) */
+	int 	 liq_pc_synth_active;		/** 1 (default): replace redundant per-occurrence liq NLopt solves with the
+											    analytic hyperplane synthesis; 0: fully disabled, legacy per-occurrence path */
+	double   gh_liq_pc_synth_h;			/** base xeos step size for the synthetic pseudocompound spread - scaled by
+											    sqrt(gv.gamma_norm[.]) and clamped to [1e-6,1e-2], see GH_liq_pc_synth_step 	*/
+	int 	 gh_liq_pc_synth_threshold;	/** n_ss_ph[liq] above which real per-occurrence NLopt solves are replaced
+											    by one real solve + synthetic pseudocompounds on the refined Gamma hyperplane */
+
 	/* PARTITIONING GIBBS ENERGY */ 
 	double 	*A_PGE;				/** LHS  */
 	double 	*A0_PGE;			/** First stage of extend Newton method LHS*/

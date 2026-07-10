@@ -164,7 +164,7 @@ global_variable global_variable_alloc( bulk_info  *z_b ){
 	gv.ig_ed 			= 0;					/** 0: flag to activate edited version of bi and amp for igneous database 			*/
 	gv.precond 			= 1;					/** 1: precondition (Ruiz-scale) the stoichiometric matrix before inverseMatrix's LU inversion, 0: preconditioning off 	*/
 	gv.BR_rel_norm 		= 1;					/** 1: PGE mass-residual convergence norm is per-oxide-relative (normalized by bulk abundance), 0: old absolute norm 	*/
-	gv.gh_multistart_order = 0;				/** 0 (default): single starting guess for gh's embedded order-parameter phases, matching real xMELTS' own order() exactly; 1: legacy multi-start (see MAGEMin.h) 	*/
+	gv.gh_multistart_order = 0;					/** 0 (default): single starting guess for gh's embedded order-parameter phases, matching real xMELTS' own order() exactly; 1: legacy multi-start (see MAGEMin.h) 	*/
 
 	// gv.calc_seismic_cor = 1;					/** compute seismic velocity corrections (melt and anelastic)						*/
 	// gv.melt_pressure 	= 0.0;				/** [kbar] pressure shift in case of modelling melt pressure 						*/
@@ -211,6 +211,12 @@ global_variable global_variable_alloc( bulk_info  *z_b ){
 	gv.maxgmTime        = 0.1; 					/** set a maximum minimization time for the local minimizer (sec)					*/
 	gv.box_size_mode_LP	= 1.0;					/** box edge size of the compositional variables used during PGE local minimization */
 
+	/* "liq" redundant-occurrence pseudocompound synthesis (gh and tc) */
+	gv.liq_pc_synth_active			= 1;			/** 1: composite method active; 0: fully disabled, legacy per-occurrence NLopt path 	*/
+	gv.gh_liq_pc_synth_h			= 1e-2;			/** base xeos step size for the synthetic pseudocompound spread - actual step used
+													    is this * sqrt(gv.gamma_norm[.]), clamped to [1e-6, 1e-2] (see GH_liq_pc_synth_step) */
+	gv.gh_liq_pc_synth_threshold	= 2;			/** n_ss_ph[liq] above which the composite (1 real solve + synthesis) method fires 	*/
+
 	/* set of parameters to record the evolution of the norm of the mass constraint */
 	gv.it_1             = 128;                  /** first critical iteration                                                        */
 	gv.ur_1             = 4.;                   /** under relaxing factor on mass constraint if iteration is bigger than it_1       */
@@ -221,8 +227,9 @@ global_variable global_variable_alloc( bulk_info  *z_b ){
 	gv.it_f             = 256;                  /** gives back failure when the number of iteration is bigger than it_f             */
 
 	/* phase update options 			*/
-	gv.min_df 			= -1e-6;					/** value under which a phase in hold is reintroduced */
+	gv.min_df 			= -1e-6;				/** value under which a phase in hold is reintroduced 								*/
 	gv.re_in_df 		= -1e-6;
+	
 	/* numerical derivatives P,T steps (same value as TC) */
 	gv.gb_P_eps			= 2e-3;					/** small value to calculate V using finite difference: V = dG/dP;					*/
 	gv.gb_T_eps			= 2e-3;					/** small value to calculate V using finite difference: V = dG/dP;					*/

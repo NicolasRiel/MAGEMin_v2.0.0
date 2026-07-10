@@ -691,6 +691,7 @@ mutable struct global_variables
     ig_ed::Cint
     precond::Cint
     BR_rel_norm::Cint
+    gh_multistart_order::Cint
     fixed_bulk::Cint
     SB_eos::Cint
     SB_eos_cor::Cint
@@ -788,6 +789,9 @@ mutable struct global_variables
     maxeval::Cint
     bnd_val::Cdouble
     obj_refine_fac::Cdouble
+    liq_pc_synth_active::Cint
+    gh_liq_pc_synth_h::Cdouble
+    gh_liq_pc_synth_threshold::Cint
     A_PGE::Ptr{Cdouble}
     A0_PGE::Ptr{Cdouble}
     b_PGE::Ptr{Cdouble}
@@ -1836,10 +1840,10 @@ mutable struct gh_datasets
     n_ss::Cint
     ox::NTuple{13, NTuple{20, Cchar}}
     PP::NTuple{18, NTuple{20, Cchar}}
-    SS::NTuple{8, NTuple{20, Cchar}}
-    verifyPC::NTuple{8, Cint}
-    n_SS_PC::NTuple{8, Cint}
-    SS_PC_stp::NTuple{8, Cdouble}
+    SS::NTuple{12, NTuple{20, Cchar}}
+    verifyPC::NTuple{12, Cint}
+    n_SS_PC::NTuple{12, Cint}
+    SS_PC_stp::NTuple{12, Cdouble}
     PC_df_add::Cdouble
     solver_switch_T::Cdouble
     min_melt_T::Cdouble
@@ -3021,6 +3025,22 @@ function obj_gh_mel(n, x, grad, SS_ref_db)
     ccall((:obj_gh_mel, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
 end
 
+function obj_gh_cum(n, x, grad, SS_ref_db)
+    ccall((:obj_gh_cum, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
+end
+
+function obj_gh_spn(n, x, grad, SS_ref_db)
+    ccall((:obj_gh_spn, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
+end
+
+function obj_gh_cpx(n, x, grad, SS_ref_db)
+    ccall((:obj_gh_cpx, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
+end
+
+function obj_gh_opx(n, x, grad, SS_ref_db)
+    ccall((:obj_gh_opx, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
+end
+
 function GH_SS_objective_init_function(SS_objective, gv)
     ccall((:GH_SS_objective_init_function, libMAGEMin), Cvoid, (Ptr{obj_type}, global_variable), SS_objective, gv)
 end
@@ -3506,7 +3526,7 @@ function compute_density_volume_modulus(EM_database, z_b, gv, PP_ref_db, SS_ref_
     ccall((:compute_density_volume_modulus, libMAGEMin), global_variable, (Cint, bulk_info, global_variable, Ptr{PP_ref}, Ptr{SS_ref}, Ptr{csd_phase_set}), EM_database, z_b, gv, PP_ref_db, SS_ref_db, cp)
 end
 
-const GH_N_PP = 37
+const GH_N_PP = 51
 
 const NLOPT_MINF_MAX_REACHED = NLOPT_STOPVAL_REACHED
 
