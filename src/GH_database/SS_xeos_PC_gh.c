@@ -217,6 +217,33 @@ struct ss_pc gh_cum_pc_xeos[9] = {
     {{ 0.1000, 0.9000 }},
 };
 
+/**
+    Fluid (H2O-CO2): p order H2O,CO2. Corner-weighted rather than the
+    uniform 0.1 spacing every other 2-endmember gh phase above uses -
+    GH_pitzer_sterner_mix_G's Gex(x) is tens of kJ (a real, if crude,
+    consequence of fluidPhase()'s own "initial guess at the functional
+    form" virial-coefficient mixing rule - see its header comment), far
+    larger than e.g. olivine's ~kJ regular-solution Gex, and falls off
+    steeply only very close to the pure endpoints (Gex(0.9)=23 kJ vs
+    Gex(0.99)=4 kJ at a representative T,P). A uniform grid's worst point
+    (0.1/0.9) would never survive the initial PC-levelling cull against
+    the always-present, exactly-pure "H2O" phase, so this phase would
+    never get an NLopt refinement chance even where it should win (e.g.
+    representing free CO2-rich fluid, which otherwise has no home in gh
+    at all).
+*/
+struct ss_pc gh_fluid_pc_xeos[9] = {
+    {{ 0.9990, 0.0010 }},
+    {{ 0.9900, 0.0100 }},
+    {{ 0.9500, 0.0500 }},
+    {{ 0.7500, 0.2500 }},
+    {{ 0.5000, 0.5000 }},
+    {{ 0.2500, 0.7500 }},
+    {{ 0.0500, 0.9500 }},
+    {{ 0.0100, 0.9900 }},
+    {{ 0.0010, 0.9990 }},
+};
+
 /** Clinopyroxene/orthopyroxene (Di-Cen-Hed-CaTs(Al)-CaTs(Fe3+)-Ess-Jd):
     corners, all 21 edge midpoints, centroid, 7 near-corner points - same
     generic coverage spirit as the grids above, extended to 7 endmembers.
@@ -300,6 +327,7 @@ static void GH_shift_pc_grids_once(void){
     for (int k = 0; k < 9;  k++){ GH_shift_row(gh_cum_pc_xeos[k].xeos_pc,  2); }
     for (int k = 0; k < 21; k++){ GH_shift_row(gh_spn_pc_xeos[k].xeos_pc,  5); }
     for (int k = 0; k < 36; k++){ GH_shift_row(gh_cpx_pc_xeos[k].xeos_pc,  7); }
+    for (int k = 0; k < 9;  k++){ GH_shift_row(gh_fluid_pc_xeos[k].xeos_pc, 2); }
     gh_pc_shifted = 1;
 }
 
@@ -322,6 +350,7 @@ static struct ss_pc gh_cum_pc_xeos_work[9];
 static struct ss_pc gh_spn_pc_xeos_work[21];
 static struct ss_pc gh_cpx_pc_xeos_work[36];
 static struct ss_pc gh_opx_pc_xeos_work[36];
+static struct ss_pc gh_fluid_pc_xeos_work[9];
 
 static void GH_build_pc_work(struct ss_pc *src, struct ss_pc *work, int n_row, int n_col, double *z_em){
     for (int k = 0; k < n_row; k++){
@@ -390,5 +419,9 @@ void GH_pc_init_function(  PC_ref  *SS_pc_xeos,
     else if (strcmp(name, "opx") == 0){
         GH_build_pc_work(gh_cpx_pc_xeos, gh_opx_pc_xeos_work, 36, 7, z_em);
         SS_pc_xeos[iss].ss_pc_xeos = gh_opx_pc_xeos_work;
+    }
+    else if (strcmp(name, "fl") == 0){
+        GH_build_pc_work(gh_fluid_pc_xeos, gh_fluid_pc_xeos_work, 9, 2, z_em);
+        SS_pc_xeos[iss].ss_pc_xeos = gh_fluid_pc_xeos_work;
     }
 }

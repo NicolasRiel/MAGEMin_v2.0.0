@@ -835,30 +835,30 @@ global_variable ReadCommandLineOptions(	global_variable 	 gv,
 		else if (c == 310){
 			char *p = strtok(opt.arg,",");
 			size_t i = 0;
-			while(p && i<11) {
+			while(p && i<(size_t)gv.maxlen_ox) {
 					gv.arg_gamma[i++] = atof(p);
 					p = strtok(NULL, ",");
 			}
 			if (gv.verbose == 1){
 				printf("--Gam  	      : Gamma           = ");
-				for (int j = 0; j < 11; j++){
-					printf("%g ", gv.arg_gamma[j]);	
-				} 
+				for (int j = 0; j < gv.maxlen_ox; j++){
+					printf("%g ", gv.arg_gamma[j]);
+				}
 				printf(" dG \n");
 			}
 		 }
 		else if (c == 311){
 			char *p  = strtok(opt.arg,",");
 			size_t i = 0;
-			while(p && i<11) {
+			while(p && i<(size_t)gv.maxlen_ox) {
 					gv.arg_bulk[i++] = atof(p);
 					p = strtok(NULL, ",");
 			}
 			if (gv.verbose == 1){
 				printf("--Bulk  	 : Bulk         = ");
-				for (int j = 0; j < 11; j++){
-					printf("%g ", gv.arg_bulk[j]);	
-				} 
+				for (int j = 0; j < gv.maxlen_ox; j++){
+					printf("%g ", gv.arg_bulk[j]);
+				}
 				printf(" \n");
 			}
 		 }

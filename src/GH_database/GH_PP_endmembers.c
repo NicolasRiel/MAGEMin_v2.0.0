@@ -177,11 +177,33 @@ static const PP_db_gh arr_pp_db_gh[GH_N_PP] = {
         -5840200.0, 331.0, 14.712,
         { 597.163, -36.929E2, -50.5712E5, 43.382E7, 0.0, 0.0, 0.0, 0.0 },
         { -0.890E-6, 2.212E-12, 18.436E-6, 415.968E-10 } },
+    /* tilleyite - Ca5Si2O7(CO3)2 = 2 SiO2 + 5 CaO + 2 CO2, companion to spurrite
+       (one more CO2, one less "framework" O) - EOS left to parallel calcite/
+       spurrite (Berman 1988), same convention xMELTS' own entry uses. */
+    { "til", { 2.0,0,5.0,0,0,0,0,0,0,0,0,0,2.0,0,0,0 },
+        -6372200.0, 394.0, 17.43,
+        { 716.789, -51.992E2, -50.5712E5, 60.769E7, 0.0, 0.0, 0.0, 0.0 },
+        { -0.890E-6, 2.212E-12, 18.436E-6, 415.968E-10 } },
     /* muscovite - KAl2(AlSi3O10)(OH)2 = 3 SiO2 + 1.5 Al2O3 + 0.5 K2O + H2O */
     { "mu", { 3.0,1.5,0,0,0,0.5,0,0,0,0,0,1.0,0,0,0,0 },
         -5976740.0, 293.157, 14.087,
         { 651.49, -38.732E2, -185.232E5, 274.247E7, 0.0, 0.0, 0.0, 0.0 },
         { -1.717E-6, 4.295E-12, 33.527E-6, 0.0 } },
+    /* aegirine (acmite) - NaFeSi2O6 (Fe3+) = 2 SiO2 + 0.5 Na2O + FeO + 0.5 O,
+       Sack & Ghiorso (1994). Cp is xMELTS' own composite (jadeite + hedenbergite
+       - diopside reaction sum, "311.29+303.909-297.499" etc in the source) -
+       ported as the already-summed numeric result, not re-derived. */
+    { "aeg", { 2.0,0,0,0,1.0,0,0.5,0,0.5,0,0,0,0,0,0,0 },
+        -2576800.0, 170.57, 63.997,
+        { 317.700, -2066.81, -3004650.0, 256011000.0, 0.0, 0.0, 0.0, 0.0 },
+        { 0.0, 0.0, 0.0, 0.0 } },
+    /* aenigmatite - Na2Fe5TiSi6O20 (all Fe2+, charge-balances exactly with no
+       Fe3+/O-excess needed) = Na2O + 5 FeO + TiO2 + 6 SiO2. H is xMELTS' own
+       "Guess" (no calorimetric measurement exists), S from sum-of-oxides. */
+    { "aen", { 6.0,0,0,0,5.0,0,1.0,1.0,0,0,0,0,0,0,0,0 },
+        -8472805.0, 740.23, 22.8546,
+        { 1092.073, -6159.81, -22526790.0, 3268659000.0, 0.0, 0.0, 0.0, 0.0 },
+        { 0.0, 0.0, 0.0, 0.0 } },
 
     /* --- hornblende endmembers (pargasite-ferropargasite-magnesiohastingsite) --- */
     /* pargasite - NaCa2Mg4AlAl2Si6O22(OH)2 = 6 SiO2 + 1.5 Al2O3 + 2 CaO + 4 MgO + 0.5 Na2O + H2O */

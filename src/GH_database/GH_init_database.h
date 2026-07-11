@@ -38,7 +38,13 @@
         ordering), and spinel ("spn", chromite-hercynite-magnetite-spinel-
         ulvospinel, NR=4/NS=3, gh's first 3D embedded order-parameter
         solve, using nonlinear Gauss-Seidel over robust 1D bisections
-        rather than a joint Newton step - see gh_objective_functions.c.
+        rather than a joint Newton step - see gh_objective_functions.c;
+        clinopyroxene/orthopyroxene ("cpx"/"opx", Di-Cen-Hed-CaTs(Al)-
+        CaTs(Fe3+)-Ess-Jd, NR=6); and the real mixed H2O-CO2 fluid
+        ("fluid", Pitzer & Sterner 1994, from xMELTS' sources/fluid.c) -
+        gh's first phase that is a genuine real-gas EOS mixture rather
+        than a discrete-endmember Margules solution, see
+        GH_pitzer_sterner_mix_G's header comment (GH_fluid_eos.h).
     **/
     typedef struct gh_datasets {
         int     ds_version;
@@ -46,12 +52,12 @@
         int     n_pp;
         int     n_ss;
         char    ox[13][20];
-        char    PP[18][20];
-        char    SS[12][20];
+        char    PP[22][20];
+        char    SS[13][20];
 
-        int     verifyPC[12];
-        int     n_SS_PC[12];
-        double  SS_PC_stp[12];
+        int     verifyPC[13];
+        int     n_SS_PC[13];
+        double  SS_PC_stp[13];
 
         double  PC_df_add;
         double  solver_switch_T;

@@ -11,41 +11,17 @@
 /**
     Objective function for the Stage-A Ghiorso/MELTS liquid ("liq"): a
     15-endmember symmetric regular solution (ideal mole-fraction mixing +
-    Margules excess energy), following the exact same formulation as
+    Margules excess energy), following the same formulation as
     SB_database's solution models (e.g. obj_sb11_ol): n_xeos == n_em,
     p[i] = x[i] directly (no reduced/rotated basis), with the Sigma(p)=1
-    closure enforced by an NLopt equality constraint (see
-    GH_NLopt_opt_function.c) rather than algebraic elimination. This
-    matches "gh"'s LP-only solving path, which reuses the same shared
-    LP/PGE machinery as "sb".
-
-    The regular-solution excess-energy loop (mu_Gex[i] via the eye[][]
-    identity-matrix trick) is the identical pattern used by every
-    SB_database solution model, generalized here from 2 endmembers
-    (forsterite-fayalite) to 15.
-
-    Ideal-mixing entropy uses TC_database's own d_em mechanism (e.g.
-    TC_database/objective_functions.c: "R*T*creal(clog(sf[4]+d_em[6]))"):
-    d_em[i] is 0 for a normal endmember and 1 for one boiled out because
-    the bulk-rock is missing an oxide it needs (set in
-    gh_gss_function.c's reference-state functions, alongside pinning that
-    xeos to bounds=[0,0] and z_em[i]=0 - see GH_boiled_out there), so
-    log(p[i]+d_em[i])=log(1)=0 there regardless of p[i]. Unlike an earlier
-    version of this file, the log() below is unconditional (no guard on
-    p[i]+d_em[i]>0), matching tc's own convention: this is safe because
-    the pseudocompound grids that seed p[i] during levelling (SS_xeos_PC_gh.c)
-    are shifted off exact 0.0/1.0 and, per bulk, renormalized to Sigma=1
-    after any boiled-out endmember's column is zeroed (see
-    GH_pc_init_function there), so a non-boiled-out endmember (d_em=0)
-    never reaches p[i]=0 through that path, while NLopt's own box bounds
-    (bounds_ref=[eps,1-eps]) keep it that way during refinement too. Every
-    other obj_gh_* function below follows this same pattern.
+    closure enforced by an NLopt equality constrain.
 */
 #include <math.h>
 #include <string.h>
 
 #include "../MAGEMin.h"
 #include "gh_objective_functions.h"
+#include "GH_fluid_eos.h"
 
 /** Mirrors gv.gh_multistart_order (obj_gh_spn's own signature is fixed by
     NLopt's callback interface and doesn't receive gv directly) - copied
@@ -186,6 +162,58 @@ double obj_gh_ol(unsigned n, const double *x, double *grad, void *SS_ref_db){
         double dS1 = 2.0*R*T*(log(p[1] + d->d_em[1])+1.0);
         grad[0] = (dS0 + mu_Gex[0] + gb[0])*d->factor - (d->df_raw*d->factor*(d->ape[0]/d->sum_apep));
         grad[1] = (dS1 + mu_Gex[1] + gb[1])*d->factor - (d->df_raw*d->factor*(d->ape[1]/d->sum_apep));
+    }
+    return d->df;
+}
+
+/**
+    Real mixed H2O-CO2 fluid (Pitzer & Sterner 1994), from xMELTS'
+    sources/fluid.c fluidPhase() - see GH_pitzer_sterner_mix_G's header
+    comment (GH_fluid_eos.h) for the actual mixing physics. Unlike every
+    other gh phase, there is no stored-W[] Margules Gex here: the mixture
+    EOS returns the TOTAL molar Gibbs energy G(x,T,P) directly (a real
+    fluid, not a lattice solution). Gex is defined the same way it behaves
+    everywhere else in gh - the mixture's G minus the ideal mechanical
+    mixture of the two pure-fluid gb[] values (gb[0]=H2O, gb[1]=CO2,
+    already at the current T,P via get_em_data in
+    G_SS_gh_fluid_function) - then folded into mu_Gex[]/df via the exact
+    same NA=2,NR=1 "delta_ik-p_k" construction obj_gh_ol above uses for
+    its own (much simpler, W*p0*p1) Gex. dGex/dx0 is analytic via the
+    envelope theorem baked into GH_pitzer_sterner_mix_G itself.
+*/
+double obj_gh_fluid(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    double T    = d->T;
+    double Pbar = d->P*1000.0;
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 2; i++){ p[i] = x[i]; }
+    double x0 = p[0], x1 = p[1];
+
+    double dGdx0;
+    double Gtot = GH_pitzer_sterner_mix_G(x0, T, Pbar, &dGdx0)/1000.0; /* J -> kJ */
+    dGdx0 /= 1000.0;
+
+    double Gex    = Gtot - x0*gb[0] - x1*gb[1];
+    double dGexdx = dGdx0 - gb[0] + gb[1];
+
+    mu_Gex[0] = Gex + (1.0-x0)*dGexdx;
+    mu_Gex[1] = Gex - x0*dGexdx;
+    d->sf[0] = p[0]; d->sf[1] = p[1];
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 2; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = (mu_Gex[0]+gb[0])*p[0] + (mu_Gex[1]+gb[1])*p[1];
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        grad[0] = (mu_Gex[0]+gb[0])*d->factor - (d->df_raw*d->factor*(d->ape[0]/d->sum_apep));
+        grad[1] = (mu_Gex[1]+gb[1])*d->factor - (d->df_raw*d->factor*(d->ape[1]/d->sum_apep));
     }
     return d->df;
 }
@@ -1892,6 +1920,9 @@ void GH_SS_objective_init_function(    obj_type            *SS_objective,
         else if (strcmp( gv.SS_list[iss], "opx") == 0 ){
             SS_objective[iss] = obj_gh_opx;
         }
+        else if (strcmp( gv.SS_list[iss], "fl") == 0 ){
+            SS_objective[iss] = obj_gh_fluid;
+        }
     }
 }
 
@@ -1934,6 +1965,9 @@ void GH_PC_init(                       PC_type             *PC_read,
         else if (strcmp( gv.SS_list[iss], "opx") == 0 ){
             PC_read[iss] = obj_gh_opx;
         }
+        else if (strcmp( gv.SS_list[iss], "fl") == 0 ){
+            PC_read[iss] = obj_gh_fluid;
+        }
     }
 }
 
@@ -1968,7 +2002,8 @@ void GH_P2X_init(                      P2X_type            *P2X_read,
             strcmp( gv.SS_list[iss], "cum") == 0 ||
             strcmp( gv.SS_list[iss], "spn") == 0 ||
             strcmp( gv.SS_list[iss], "cpx") == 0 ||
-            strcmp( gv.SS_list[iss], "opx") == 0){
+            strcmp( gv.SS_list[iss], "opx") == 0 ||
+            strcmp( gv.SS_list[iss], "fl") == 0){
             P2X_read[iss] = p2x_gh_generic;
         }
     }

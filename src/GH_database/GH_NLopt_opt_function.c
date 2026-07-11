@@ -145,6 +145,9 @@ SS_ref NLopt_opt_gh_cpx_function(global_variable gv, SS_ref SS_ref_db){
 SS_ref NLopt_opt_gh_opx_function(global_variable gv, SS_ref SS_ref_db){
     return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_opx);
 }
+SS_ref NLopt_opt_gh_fluid_function(global_variable gv, SS_ref SS_ref_db){
+    return GH_generic_NLopt_opt_function(gv, SS_ref_db, obj_gh_fluid);
+}
 
 void GH_NLopt_opt_init(             NLopt_type          *NLopt_opt,
                                     global_variable      gv              ){
@@ -184,6 +187,9 @@ void GH_NLopt_opt_init(             NLopt_type          *NLopt_opt,
         }
         else if (strcmp( gv.SS_list[iss], "opx") == 0 ){
             NLopt_opt[iss] = NLopt_opt_gh_opx_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "fl") == 0 ){
+            NLopt_opt[iss] = NLopt_opt_gh_fluid_function;
         }
     }
 }

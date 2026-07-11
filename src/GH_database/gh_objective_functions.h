@@ -25,6 +25,7 @@ double obj_gh_cum(unsigned n, const double *x, double *grad, void *SS_ref_db);
 double obj_gh_spn(unsigned n, const double *x, double *grad, void *SS_ref_db);
 double obj_gh_cpx(unsigned n, const double *x, double *grad, void *SS_ref_db);
 double obj_gh_opx(unsigned n, const double *x, double *grad, void *SS_ref_db);
+double obj_gh_fluid(unsigned n, const double *x, double *grad, void *SS_ref_db);
 
 void GH_SS_objective_init_function(    obj_type            *SS_objective,
                                         global_variable      gv                  );

@@ -1083,16 +1083,6 @@ void ss_min_LP(			global_variable 	 gv,
 		}
 	}
 	int    liq_synth_active = (ph_id_liq >= 0) && (N_liq >= gv.gh_liq_pc_synth_threshold);
-	/* Tracks whether ANY liq occurrence has produced a valid real
-	   minimization yet this cycle (see the validity check below, right
-	   after each attempt). The act-gate keeps trying successive
-	   occurrences for real, one at a time, until one succeeds - only then
-	   do the remaining occurrences get skipped in favor of synthesis. If
-	   every occurrence turns out invalid, this simply stays 0 and every
-	   occurrence ends up minimized for real (full legacy behavior, with
-	   stage B/C skipped since there's no valid result to build them from) -
-	   graceful, occurrence-by-occurrence degradation instead of giving up
-	   on the shortcut entirely after a single bad candidate. */
 	int    liq_real_min_found = 0;
 	double MtM[n_ox_all][n_ox_all];
 	double Mtmu[n_ox_all];
@@ -1219,6 +1209,7 @@ void ss_min_LP(			global_variable 	 gv,
 				// 	}
 				// }
 				// */
+
 				for (int k = 0; k < cp[i].n_xeos; k++) {
 					SS_ref_db[ph_id].iguess[k]   =  cp[i].xeos_1[k];
 				}
@@ -1233,11 +1224,6 @@ void ss_min_LP(			global_variable 	 gv,
 															z_b,
 															gv.SS_list[ph_id]		);
 
-				/* captured here, before the xeos_0 fallback branch below can
-				   re-run PC_function/SS_UPDATE_function (and overwrite
-				   sf_ok) at a different point - this is specifically
-				   whether the REAL minimization's own result was valid,
-				   used by the liq synthesis candidate check further down */
 				int liq_candidate_sf_ok = SS_ref_db[ph_id].sf_ok;
 
 				/**
@@ -1319,7 +1305,7 @@ void ss_min_LP(			global_variable 	 gv,
 				for (int a = 0; a < gv.len_ox; a++){ printf(" %+10f", gamma_new[a]); }
 				printf(" ]\n");
 			}
-			if (is_gh){ GH_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gamma_new); }
+			if 		(is_gh){ GH_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gamma_new); }
 			else if (is_tc){ TC_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gamma_new); }
 		}
 		else{
@@ -1328,7 +1314,7 @@ void ss_min_LP(			global_variable 	 gv,
 				for (int a = 0; a < gv.len_ox; a++){ printf(" %+10f", gv.gam_tot[a]); }
 				printf(" ]\n");
 			}
-			if (is_gh){ GH_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gv.gam_tot); }
+			if 		(is_gh){ GH_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gv.gam_tot); }
 			else if (is_tc){ TC_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gv.gam_tot); }
 		}
 	}

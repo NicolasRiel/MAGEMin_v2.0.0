@@ -233,6 +233,26 @@ SS_ref G_SS_gh_opx_init_function(SS_ref SS_ref_db, global_variable gv){
     return G_SS_gh_cpx_init_function(SS_ref_db, gv);
 }
 
+/**
+    Real mixed H2O-CO2 fluid, from xMELTS sources/fluid.c's fluidPhase()
+    (see obj_gh_fluid's header comment) - a genuine real-gas EOS mixture,
+    not a discrete-endmember Margules solution like every other gh phase
+    above. Direct p=x, n_xeos=n_em=2, n_w=0 (no Margules W is used at all -
+    the mixing physics comes entirely from GH_pitzer_sterner_mix_G).
+*/
+SS_ref G_SS_gh_fluid_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 2;
+    SS_ref_db.n_em      = 2;
+    SS_ref_db.n_sf      = 2;
+    SS_ref_db.n_w       = 0;
+
+    return SS_ref_db;
+}
+
 void GH_SS_init(            SS_init_type        *SS_init,
                             global_variable      gv              ){
 
@@ -272,6 +292,9 @@ void GH_SS_init(            SS_init_type        *SS_init,
         }
         else if (strcmp( gv.SS_list[iss], "opx") == 0 ){
             SS_init[iss]  = G_SS_gh_opx_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "fl") == 0 ){
+            SS_init[iss]  = G_SS_gh_fluid_init_function;
         }
         else{
             printf("\nsolid solution '%s' is not in the 'gh' database, cannot be initiated\n", gv.SS_list[iss]);

@@ -278,6 +278,67 @@ SS_ref G_SS_gh_ol_function(SS_ref SS_ref_db, char* research_group, int EM_datase
 }
 
 /**
+    Real mixed H2O-CO2 fluid (Pitzer & Sterner 1994), from xMELTS'
+    sources/fluid.c fluidPhase() - the general (composition-dependent)
+    branch that GH_pitzer_sterner_G/GH_fluid_eos.c deliberately dropped
+    when only the pure-endmember standard states were needed (for the
+    "H2O" pure phase). gbase[0]/gbase[1] here are just the two pure-fluid
+    endmembers (identical to the existing "H2O" pure phase's own gbase,
+    and the CO2 equivalent that has no other outlet in gh); the entire
+    mixing physics (a genuine EOS cross-term, not a Margules Gex) lives in
+    obj_gh_fluid via GH_pitzer_sterner_mix_G - so, unlike every other gh
+    solution phase, W[] is unused here (n_w=0).
+*/
+SS_ref G_SS_gh_fluid_function(SS_ref SS_ref_db, char* research_group, int EM_dataset, int len_ox, bulk_info z_b, double eps){
+    strcpy(SS_ref_db.fName,"fluid_MELTS");
+    int i;
+    int n_em = SS_ref_db.n_em;
+
+    char *EM_tmp[] = {"H2O","CO2"};
+    for (i = 0; i < n_em; i++){
+        strcpy(SS_ref_db.EM_list[i], EM_tmp[i]);
+    };
+
+    em_data h2o_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "H2O", "equilibrium");
+    em_data co2_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "CO2", "equilibrium");
+
+    SS_ref_db.gbase[0] = h2o_eq.gb;
+    SS_ref_db.gbase[1] = co2_eq.gb;
+
+    SS_ref_db.ElShearMod[0] = h2o_eq.ElShearMod;
+    SS_ref_db.ElShearMod[1] = co2_eq.ElShearMod;
+
+    SS_ref_db.ElBulkMod[0] = h2o_eq.ElBulkMod;
+    SS_ref_db.ElBulkMod[1] = co2_eq.ElBulkMod;
+
+    SS_ref_db.ElCp[0] = h2o_eq.ElCp;
+    SS_ref_db.ElCp[1] = co2_eq.ElCp;
+
+    SS_ref_db.ElExpansivity[0] = h2o_eq.ElExpansivity;
+    SS_ref_db.ElExpansivity[1] = co2_eq.ElExpansivity;
+
+    for (i = 0; i < len_ox; i++){
+        SS_ref_db.Comp[0][i] = h2o_eq.C[i];
+        SS_ref_db.Comp[1][i] = co2_eq.C[i];
+    }
+
+    for (i = 0; i < n_em; i++){
+        SS_ref_db.z_em[i] = 1.0;
+    };
+
+    for (i = 0; i < SS_ref_db.n_xeos; i++){
+        SS_ref_db.bounds_ref[i][0] = 0.0+eps;
+        SS_ref_db.bounds_ref[i][1] = 1.0-eps;
+    }
+
+    for (i = 0; i < n_em; i++){ SS_ref_db.d_em[i] = 0.0; }
+    if (GH_boiled_out(len_ox, h2o_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[0] = 1.0; SS_ref_db.z_em[0] = 0.0; SS_ref_db.bounds_ref[0][0] = 0.0; SS_ref_db.bounds_ref[0][1] = 0.0; }
+    if (GH_boiled_out(len_ox, co2_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[1] = 1.0; SS_ref_db.z_em[1] = 0.0; SS_ref_db.bounds_ref[1][0] = 0.0; SS_ref_db.bounds_ref[1][1] = 0.0; }
+
+    return SS_ref_db;
+}
+
+/**
     Feldspar (Ab-An-San): Elkins & Grove (1990) asymmetric ternary
     Margules, from xMELTS-master/sources/feldspar.c. W[] here is
     display/bookkeeping only (enthalpy terms); obj_gh_fsp reads the full
@@ -1008,6 +1069,9 @@ SS_ref G_SS_gh_EM_function(    global_variable  gv,
         }
         else if (strcmp( name, "opx") == 0 ){
             SS_ref_db = G_SS_gh_opx_function(SS_ref_db, gv.research_group, EM_dataset, gv.len_ox, z_b, eps);
+        }
+        else if (strcmp( name, "fl") == 0 ){
+            SS_ref_db = G_SS_gh_fluid_function(SS_ref_db, gv.research_group, EM_dataset, gv.len_ox, z_b, eps);
         }
         else{
             printf("\nsolid solution '%s' is not in the 'gh' database\n", name);
