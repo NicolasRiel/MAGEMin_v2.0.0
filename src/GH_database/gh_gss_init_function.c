@@ -214,6 +214,52 @@ SS_ref G_SS_gh_spn_init_function(SS_ref SS_ref_db, global_variable gv){
     return SS_ref_db;
 }
 
+/** Rhombohedral oxide (Geikielite-Hematite-Ilmenite-Pyrophanite-Corundum):
+    NR=4/NS=3 reciprocal solution with a joint 3-variable order-parameter
+    solve - see obj_gh_rhm in gh_objective_functions.c. */
+SS_ref G_SS_gh_rhm_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 5;
+    SS_ref_db.n_em      = 5;
+    SS_ref_db.n_sf      = 5;
+    SS_ref_db.n_w       = 1;
+
+    return SS_ref_db;
+}
+
+/** Nepheline (Sack & Ghiorso 1995): NR=3/NS=1 single embedded order
+    parameter - see obj_gh_nph in gh_objective_functions.c. */
+SS_ref G_SS_gh_nph_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 4;
+    SS_ref_db.n_em      = 4;
+    SS_ref_db.n_sf      = 4;
+    SS_ref_db.n_w       = 1;
+
+    return SS_ref_db;
+}
+
+/** Kalsilite (Sack & Ghiorso 1995): NR=3, no order parameter (direct
+    algebraic solution) - see obj_gh_kls in gh_objective_functions.c. */
+SS_ref G_SS_gh_kls_init_function(SS_ref SS_ref_db, global_variable gv){
+    SS_ref_db.is_liq    = 0;
+    SS_ref_db.override  = 0;
+    SS_ref_db.symmetry  = 1;
+    SS_ref_db.n_cat     = 1;
+    SS_ref_db.n_xeos    = 4;
+    SS_ref_db.n_em      = 4;
+    SS_ref_db.n_sf      = 4;
+    SS_ref_db.n_w       = 1;
+
+    return SS_ref_db;
+}
+
 /** Clinopyroxene and orthopyroxene (Di-Cen-Hed-CaTs(Al)-CaTs(Fe3+)-Ess-Jd):
     NR=6/NA=7, gh's largest phase - see obj_gh_cpx in
     gh_objective_functions.c for why both share the same init shape. */
@@ -295,6 +341,15 @@ void GH_SS_init(            SS_init_type        *SS_init,
         }
         else if (strcmp( gv.SS_list[iss], "fl") == 0 ){
             SS_init[iss]  = G_SS_gh_fluid_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "rhm") == 0 ){
+            SS_init[iss]  = G_SS_gh_rhm_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "nph") == 0 ){
+            SS_init[iss]  = G_SS_gh_nph_init_function;
+        }
+        else if (strcmp( gv.SS_list[iss], "kls") == 0 ){
+            SS_init[iss]  = G_SS_gh_kls_init_function;
         }
         else{
             printf("\nsolid solution '%s' is not in the 'gh' database, cannot be initiated\n", gv.SS_list[iss]);

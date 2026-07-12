@@ -38,15 +38,15 @@ gh_dataset gh_db = {
 	1,							/* ds_version (single Stage-A dataset)				*/
 	13,							/* number of oxides									*/
 	22,							/* number of pure phases							*/
-	13,							/* number of solution phases						*/
-	{"SiO2"	,"Al2O3","CaO"	,"MgO"	,"FeO"	,"K2O"	,"Na2O"	,"TiO2"	,"O"	,"MnO"	,"Cr2O3","H2O"	,"CO2"				    },
+	16,							/* number of solution phases						*/
+	{"SiO2"	,"Al2O3","CaO"	,"MgO"	,"FeO"	,"K2O"	,"Na2O"	,"TiO2"	,"O"	,"MnO"	,"Cr2O3","H2O"	,"CO2"				            },
 	{"q"	,"crst"	,"trd"	,"cor"	,"sill"	,"and"	,"ky"	,"ru"	,"sph"	,"perov","cc"	,"arag"	,"mgs"	,"sid"	,
-	 "dol"	,"spu"	,"til"	,"mu"	,"aeg"	,"aen"	,"O2"	,"H2O"															},
-	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"	,"hb"	,"lc"	,"mel"	,"cum"	,"spn"	,"cpx"	,"opx"	,"fl"					},
+	 "dol"	,"spu"	,"til"	,"mu"	,"aeg"	,"aen"	,"O2"	,"H2O"															        },
+	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"	,"hb"	,"lc"	,"mel"	,"cum"	,"spn"	,"cpx"	,"opx"	,"fl"	,"rhm"	,"nph"	,"kls"	},
 
-	{1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1					    }, // allow solvus?
-	{26		,9		,15		,9		,15		,15		,15		,15		,9		,21		,36		,36		,9						}, // # of pseudocompound
-	{0.15	,0.15	,0.15	,0.15	,0.15	,0.15	,0.15	,0.15	,0.15	,0.15	,0.15	,0.15	,0.15											}, // discretization step
+	{1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		}, // allow solvus?
+	{6188	,41		,231	,41		,231	,231	,231	,165	,41		,495	,3003	,3003	,41		,1001	,165	,165	}, // # of pseudocompound
+	{0.1	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.10	,0.10	,0.10	,0.025	,0.10	,0.125	,0.125	}, // discretization step
 
 	6.0, 						/** max dG under which a phase is considered to be reintroduced  					*/
 	673.15,						/** max temperature above which PGE solver is active 								*/
@@ -250,7 +250,7 @@ global_variable global_variable_GH_init(   global_variable      gv,
     return gv;
 }
 
-/* Simple test bulk-rock compositions for the "gh" Stage-A proof of concept
+/* Simple test bulk-rock compositions for the "gh" beta test
    - not meant to be geologically precise, only to exercise the liquid
    model's minimization pipeline. Values are oxide mol% (sum to ~100),
    matching the convention tc's get_bulk_igneous test bulks (KLB1, RE46,

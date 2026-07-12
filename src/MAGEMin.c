@@ -973,7 +973,7 @@ global_variable SetupDatabase(			global_variable 	 gv,
 		SB_set_eos_correction(gv.SB_eos_cor);
 	}
 	else if( strcmp(gv.research_group, "gh") == 0 ){
-		/* Stage-A proof of concept: solved via the same LP-only path as "sb" */
+		/* Beta testt: solved via the same LP-only path as "sb" */
 		if (gv.solver != 0){
 			gv.solver = 0;
 			if (gv.verbose == 1){
@@ -983,18 +983,24 @@ global_variable SetupDatabase(			global_variable 	 gv,
 
 		gv.EM_dataset = 1;
 
-		/* single dataset for now */
-		strcpy(gv.db, "gh");
-		/* own EM_database id, distinct from tc's (0,1,2,3,4,5,6,7,11,22) and
-		   sb's (0,1,2) - EM_database is used as a bare int key (not paired
-		   with research_group) by toolkit.c's near-zero-bulk-oxide clip
-		   logic, so reusing tc's "0" (metapelite) here silently applied
-		   metapelite's oxide-exemption list to gh bulks, e.g. letting CO2/
-		   Cr2O3 get clipped up from an explicit 0.0 to 1e-4 and making
-		   CO2-bearing phases like calcite spuriously "stable". Must also
-		   never be 6 - simplex_levelling.c's swap_pure_endmembers gating
-		   excludes EM_database==6 (mantle). */
-		gv.EM_database = 8;
+		/* set-up database acronym here - "gh21" is the first (and
+		   currently only) gh dataset (Ghiorso, 2021); follow this same
+		   if/else-if shape when adding future gh dataset versions, giving
+		   each its own EM_database id within gh's own namespace (0,1,2,...
+		   - gh's EM_database is scoped by research_group everywhere it's
+		   read, including toolkit.c's near-zero-bulk-oxide clip logic in
+		   retrieve_bulk_PT, so it no longer needs to avoid colliding with
+		   tc's/sb's own EM_database ids the way it once did). */
+		if 		(strcmp(gv.db, "gh21") 	== 0){
+			gv.EM_database = 0;
+		}
+		else {
+			if (gv.verbose == 1){
+				printf(" No or wrong database acronym has been provided, using default Ghiorso, 2021([gh21])\n");
+			}
+			strcpy(gv.db, "gh21");
+			gv.EM_database = 0;
+		}
 	}
 
 	if (gv.verbose == 2){

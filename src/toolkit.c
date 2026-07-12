@@ -50,8 +50,8 @@ void print_help(	global_variable gv	){
 	printf("  --Verb=       [int]   : Verbose option, 0. inactive, 1. active\n");	
 	printf("  --File=       [str]   : File name containing multiple point calculation\n");
 	printf("  --n_points=   [int]   : Number of points when using 'File' argument\n");
-	printf("  --rg=         [str]   : ResearchGroup, can be 'tc' or 'sb (THERMOCALC, Stixrude-Lithgow-Bertelloni)\n");
-	printf("  --db=         [str]   : Database, can be 'mp', 'ig', 'igad', 'um'or 'ume'* for TC and 2011/2024 for SB\n");
+	printf("  --rg=         [str]   : ResearchGroup, can be 'tc', 'sb' or 'gh' (THERMOCALC, Stixrude-Lithgow-Bertelloni, Ghiorso/MELTS)\n");
+	printf("  --db=         [str]   : Database, can be 'mp', 'ig', 'igad', 'um'or 'ume'* for TC, 2011/2024 for SB, or 'gh21' for GH\n");
 	printf("  --ds=         [int]   : TC End-member dataset, 62, 633 or 634 (stands for ds6xx)\n");
 	printf("  --test=       [int]   : Number of points when using 'File' argument\n");
 	printf("  --Pres=       [float] : Pressure in kilobar\n");
@@ -294,7 +294,7 @@ bulk_info retrieve_bulk_PT(				global_variable      gv,
 			}
 		}
 		else if (strcmp(gv.research_group, "gh") == 0) {
-			printf("  - Database                  : Ghiorso/MELTS liquid, Stage-A proof of concept\n"	);
+			printf("  - Database                  : Ghiorso/MELTS liquid, beta test\n"	);
 		}
 
 
@@ -318,16 +318,27 @@ bulk_info retrieve_bulk_PT(				global_variable      gv,
 	/** here we check if the normalized mol fraction is < 1e-4 for oxides != H2O */
 	/** if it is, then the fraction is set to 1e-4 -> this is a current limitation of system component reduction */
 	int renorm = 0;
-	for (int i = 0; i < gv.len_ox; i++){ 
+	for (int i = 0; i < gv.len_ox; i++){
 		if (gv.bulk_rock[i] < 1.0e-4){
 
-			if (gv.EM_database == 0){ 				// metapelite database
+			if (strcmp(gv.research_group, "gh") == 0){
+				if (gv.EM_database == 0){ 			// "gh21" (Ghiorso/MELTS) database
+					if(strcmp( gv.ox[i], "FeO") == 0){
+						gv.bulk_rock[i] = 1.0e-4;
+						renorm = 1;
+						if (gv.verbose == 1){
+							printf("  - mol of %4s = %+.5f < 1e-4        : set back to 1e-4 to avoid minimization issues\n",gv.ox[i],gv.bulk_rock[i]);
+						}
+					}
+				}
+			}
+			else if (gv.EM_database == 0){ 				// metapelite database
 				if(strcmp( gv.ox[i], "H2O") != 0 && strcmp( gv.ox[i], "MnO") != 0  && strcmp( gv.ox[i], "O") != 0  && strcmp( gv.ox[i], "TiO2") != 0){
 					gv.bulk_rock[i] = 1.0e-4;
 					renorm = 1;
 					if (gv.verbose == 1){
 						printf("  - mol of %4s = %+.5f < 1e-4        : set back to 1e-4 to avoid minimization issues\n",gv.ox[i],gv.bulk_rock[i]);
-					}	
+					}
 				}
 			}
 			else if (gv.EM_database == 1){ 			// metabasite database
@@ -395,15 +406,6 @@ bulk_info retrieve_bulk_PT(				global_variable      gv,
 			}
 			else if (gv.EM_database == 7){ 			// ultramafic database
 				if(strcmp( gv.ox[i], "H2O") != 0 && strcmp( gv.ox[i], "S") != 0  && strcmp( gv.ox[i], "O") != 0 && strcmp( gv.ox[i], "MnO") != 0 && strcmp( gv.ox[i], "TiO2") != 0){
-					gv.bulk_rock[i] = 1.0e-4;
-					renorm = 1;
-					if (gv.verbose == 1){
-						printf("  - mol of %4s = %+.5f < 1e-4        : set back to 1e-4 to avoid minimization issues\n",gv.ox[i],gv.bulk_rock[i]);
-					}
-				}
-			}
-			else if (gv.EM_database == 8){ 			// "gh" (Ghiorso/MELTS) database
-				if(strcmp( gv.ox[i], "H2O") != 0 && strcmp( gv.ox[i], "TiO2") != 0 && strcmp( gv.ox[i], "Cr2O3") != 0 && strcmp( gv.ox[i], "O") != 0 && strcmp( gv.ox[i], "K2O") != 0 && strcmp( gv.ox[i], "MnO") != 0 && strcmp( gv.ox[i], "CO2") != 0){
 					gv.bulk_rock[i] = 1.0e-4;
 					renorm = 1;
 					if (gv.verbose == 1){

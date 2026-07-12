@@ -1438,6 +1438,742 @@ double obj_gh_spn(unsigned n, const double *x, double *grad, void *SS_ref_db){
 }
 
 /**
+    Rhombohedral oxide (Geikielite-Hematite-Ilmenite-Pyrophanite-Corundum,
+    Ghiorso & Evans 2008): from xMELTS' sources/rhomsghiorso.c. NR=4
+    (r0=Xilm, r1=Xgei, r2=Xpyr, r3=Xcrn, Xhem=1-r0-r1-r2-r3 dependent),
+    NS=3 joint order parameters (s0=ilmenite's, s1=geikielite's,
+    s2=pyrophanite's own A/B-site cation-ordering degree - a genuinely
+    different, JOINT solve from the 3 independent per-pure-endmember
+    order-parameter solves already folded into gei/ilm/pyr's own gbase,
+    see GH_rhm_pure_order_G in GH_gem_function.c). p[]/EM_list order
+    (gei,hem,ilm,pyr,crn) is a pure relabeling of xMELTS' own r-basis:
+    p[0]=r1, p[1]=Xhem (dependent), p[2]=r0, p[3]=r2, p[4]=r3 - same
+    "direct r-basis" pattern spn's chr/herc/mt/spl/usp already uses, no
+    basis rotation needed.
+
+    W-parameter table below is ported verbatim (names and numeric values)
+    from rhomsghiorso.c's file-scope statics. The joint order-parameter
+    solve (GH_rhm_solve_s_from) ports xMELTS' own order() function
+    EXACTLY, per this project's solver-fidelity principle (see spn's own
+    header comment above for why a plausible-looking substitute silently
+    broke NLopt convergence there): a full (UNDAMPED) joint 3-variable
+    Newton step each iteration (3x3 Hessian solved via Cramer's rule - no
+    shared linear-algebra utility exists in this codebase, same "same
+    math, no gaussj" approach spn's own joint solve uses), a simple
+    box-clamp of s[i] into [-r[i]+DBL_EPSILON, r[i]-DBL_EPSILON] after
+    each step (MIN then MAX, in that order - matching the source exactly,
+    including its degenerate-but-well-defined behavior of pinning s to
+    +DBL_EPSILON when r[i]=0, e.g. a boiled-out endmember), starting
+    guess s[i]=0.9*r[i], convergence tolerance 10*DBL_EPSILON per
+    component, MAX_ITER=100 - deliberately NOT spn's own per-site-fraction
+    damped-lambda line search, since that scheme is specific to
+    spinel.c's order() and has no counterpart in rhomsghiorso.c's.
+
+    The short-range-order spline fSRO(T,order) is a natural cubic spline
+    through 8 calibrated points that are all the identical constant
+    0.0730205 in xMELTS' own calibration - exactly flat, so
+    fSRO(T,0)==0.0730205 and every T-derivative is 0 for any T (see
+    GH_rhm_SRO_G in GH_gem_function.c for the same simplification applied
+    to hematite/corundum's own standard states).
+
+    Total molar G = sum(p[i]*gbase[i]) + Gex(r,s*(r)), where gbase[i]
+    already carries each endmember's own ordering/SRO correction (so this
+    matches xMELTS' own G_total = ENDMEMBERS(r) + G(r,s*) construction
+    exactly, see gmixMsg's *gmix = G - ENDMEMBERS in the source - gh
+    never needs the "minus ENDMEMBERS" step since gbase[] already IS
+    ENDMEMBERS(r)'s per-endmember pieces). dGex/dp uses the envelope
+    theorem (DGDR0..3 evaluated at the converged s*, no ds/dr needed,
+    since dGex/ds=0 there by construction of the joint solve) plus the
+    same delta_ik-p_k tangent-plane trick used throughout gh (liq/ol/spn)
+    to turn a single scalar Gex + its analytic p-gradient into per-
+    endmember mu_Gex[] with sum(p[i]*mu_Gex[i])==Gex exactly.
+*/
+static const double GH_rhm_dvilm=0.010758, GH_rhm_dvgei=0.010758, GH_rhm_dvpyr=0.010758;
+static const double GH_rhm_wvilm=0.035089, GH_rhm_wvgei=0.035089, GH_rhm_wvpyr=0.035089;
+static const double GH_rhm_dwvhmilm=0.013701, GH_rhm_dwvhmgei=0.013701, GH_rhm_dwvhmpyr=0.013701;
+static const double GH_rhm_wvhmilm2=0.0, GH_rhm_wvhmgei2=0.0, GH_rhm_wvhmpyr2=0.0;
+static const double GH_rhm_dwvcrnilm=0.013701, GH_rhm_dwvcrngei=0.013701, GH_rhm_dwvcrnpyr=0.013701;
+static const double GH_rhm_wvhmilm=-0.11764, GH_rhm_wvhmgei=-0.11764, GH_rhm_wvhmpyr=-0.11764;
+static const double GH_rhm_wvilmgei=0.0, GH_rhm_wvilmpyr=0.0, GH_rhm_wvgeipyr=0.0;
+static const double GH_rhm_dhilm=17477.0, GH_rhm_dhgei=17477.0, GH_rhm_dhpyr=17477.0;
+static const double GH_rhm_whilm=3189.0, GH_rhm_whgei=3189.0, GH_rhm_whpyr=3189.0;
+static const double GH_rhm_dwhhmilm=-5626.63, GH_rhm_dwhhmgei=-5626.63, GH_rhm_dwhhmpyr=-5626.63;
+static const double GH_rhm_whhmilm2=-833.14, GH_rhm_whhmgei2=-833.14, GH_rhm_whhmpyr2=-833.14;
+static const double GH_rhm_dwhcrnilm=0.0, GH_rhm_dwhcrngei=0.0, GH_rhm_dwhcrnpyr=0.0;
+static const double GH_rhm_whmcrn=69000.0;
+static const double GH_rhm_whhmilm=22535.6, GH_rhm_whhmgei=22535.6, GH_rhm_whhmpyr=22535.6;
+static const double GH_rhm_wcrnilm=22535.6, GH_rhm_wcrngei=22535.6, GH_rhm_wcrnpyr=22535.6;
+static const double GH_rhm_whilmgei=2600.0, GH_rhm_whilmpyr=2200.0, GH_rhm_whgeipyr=2600.0;
+static const double GH_rhm_whilmgeiT=88099.9, GH_rhm_whilmpyrT=30244.0, GH_rhm_whgeipyrT=2600.0;
+/* whilmilmgei=whilmgeigei=whilmilmpyr=whilmpyrpyr=whgeigeipyr=whgeipyrpyr=0.0
+   in xMELTS' own calibration - the H/DGDR/D2GDS2 terms they multiply are
+   simply omitted below rather than carried as always-0 additions. */
+static const double GH_rhm_SROconst = 0.0730205;
+static const double GH_rhm_R = 8.3143;
+
+static void GH_rhm_site_fracs(const double r[4], const double s[3],
+    double *xfe2a,double *xmg2a,double *xmn2a,double *xti4a,double *xal3a,double *xfe3a,
+    double *xfe2b,double *xmg2b,double *xmn2b,double *xti4b,double *xal3b,double *xfe3b){
+    double eps = 2.220446049250313e-16;
+    double v;
+    v=(r[0]+s[0])/2.0;                              *xfe2a=(v<=0.0)?eps:v;
+    v=(r[1]+s[1])/2.0;                              *xmg2a=(v<=0.0)?eps:v;
+    v=(r[2]+s[2])/2.0;                              *xmn2a=(v<=0.0)?eps:v;
+    v=(r[0]-s[0]+r[1]-s[1]+r[2]-s[2])/2.0;          *xti4a=(v<=0.0)?eps:v;
+    v=r[3];                                          *xal3a=(v<=0.0)?eps:v;
+    v=1.0-r[0]-r[1]-r[2]-r[3];                      *xfe3a=(v<=0.0)?eps:v;
+
+    v=(r[0]-s[0])/2.0;                              *xfe2b=(v<=0.0)?eps:v;
+    v=(r[1]-s[1])/2.0;                              *xmg2b=(v<=0.0)?eps:v;
+    v=(r[2]-s[2])/2.0;                              *xmn2b=(v<=0.0)?eps:v;
+    v=(r[0]+s[0]+r[1]+s[1]+r[2]+s[2])/2.0;          *xti4b=(v<=0.0)?eps:v;
+    v=r[3];                                          *xal3b=(v<=0.0)?eps:v;
+    v=1.0-r[0]-r[1]-r[2]-r[3];                      *xfe3b=(v<=0.0)?eps:v;
+}
+static void GH_rhm_ID_fracs(const double r[4],
+    double *xfe2ID,double *xmg2ID,double *xmn2ID,double *xti4ID,double *xal3ID,double *xfe3ID){
+    double eps = 2.220446049250313e-16;
+    *xfe2ID = (r[0]/2.0 > 0.0) ? r[0]/2.0 : eps;
+    *xmg2ID = (r[1]/2.0 > 0.0) ? r[1]/2.0 : eps;
+    *xmn2ID = (r[2]/2.0 > 0.0) ? r[2]/2.0 : eps;
+    *xti4ID = ((r[0]+r[1]+r[2])/2.0 > 0.0) ? (r[0]+r[1]+r[2])/2.0 : eps;
+    *xal3ID = (r[3] > 0.0) ? r[3] : eps;
+    *xfe3ID = (1.0-r[0]-r[1]-r[2]-r[3] > 0.0) ? 1.0-r[0]-r[1]-r[2]-r[3] : eps;
+}
+static void GH_rhm_dgds(const double r[4], const double s[3], double t, double p,
+                         double *dgds0, double *dgds1, double *dgds2){
+    double xfe2a,xmg2a,xmn2a,xti4a,xal3a,xfe3a,xfe2b,xmg2b,xmn2b,xti4b,xal3b,xfe3b;
+    GH_rhm_site_fracs(r,s,&xfe2a,&xmg2a,&xmn2a,&xti4a,&xal3a,&xfe3a,&xfe2b,&xmg2b,&xmn2b,&xti4b,&xal3b,&xfe3b);
+    double R = GH_rhm_R;
+    double r0=r[0],r1=r[1],r2=r[2],r3=r[3], s0=s[0],s1=s[1],s2=s[2];
+    double sumr = r0+r1+r2+r3;
+
+    *dgds0 = 0.5*R*t*( log(xfe2a) - log(xti4a) - log(xfe2b) + log(xti4b) )
+           + (GH_rhm_whilmgei-GH_rhm_whilmgeiT)*s1/2.0 + (GH_rhm_whilmpyr-GH_rhm_whilmpyrT)*s2/2.0
+           - 2.0*(GH_rhm_dhilm+(p-1.0)*GH_rhm_dvilm+((GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)/2.0+(GH_rhm_whhmilm2+(p-1.0)*GH_rhm_wvhmilm2)/4.0)*(1.0-sumr)
+                    -(GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*r3/2.0)*s0
+           + 2.0*(GH_rhm_whilm+(p-1.0)*GH_rhm_wvilm)*s0*(r0*r0-2.0*s0*s0);
+
+    *dgds1 = 0.5*R*t*( log(xmg2a) - log(xti4a) - log(xmg2b) + log(xti4b) )
+           + (GH_rhm_whilmgei-GH_rhm_whilmgeiT)*s0/2.0 + (GH_rhm_whgeipyr-GH_rhm_whgeipyrT)*s2/2.0
+           - 2.0*(GH_rhm_dhgei+(p-1.0)*GH_rhm_dvgei+((GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)/2.0+(GH_rhm_whhmgei2+(p-1.0)*GH_rhm_wvhmgei2)/4.0)*(1.0-sumr)
+                    -(GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*r3/2.0)*s1
+           + 2.0*(GH_rhm_whgei+(p-1.0)*GH_rhm_wvgei)*s1*(r1*r1-2.0*s1*s1);
+
+    *dgds2 = 0.5*R*t*( log(xmn2a) - log(xti4a) - log(xmn2b) + log(xti4b) )
+           + (GH_rhm_whilmpyr-GH_rhm_whilmpyrT)*s0/2.0 + (GH_rhm_whgeipyr-GH_rhm_whgeipyrT)*s1/2.0
+           - 2.0*(GH_rhm_dhpyr+(p-1.0)*GH_rhm_dvpyr+((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(1.0-sumr)
+                    -(GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*r3/2.0)*s2
+           + 2.0*(GH_rhm_whpyr+(p-1.0)*GH_rhm_wvpyr)*s2*(r2*r2-2.0*s2*s2);
+}
+static void GH_rhm_d2gds2(const double r[4], const double s[3], double t, double p,
+                           double *d00,double *d01,double *d02,double *d11,double *d12,double *d22){
+    double xfe2a,xmg2a,xmn2a,xti4a,xal3a,xfe3a,xfe2b,xmg2b,xmn2b,xti4b,xal3b,xfe3b;
+    GH_rhm_site_fracs(r,s,&xfe2a,&xmg2a,&xmn2a,&xti4a,&xal3a,&xfe3a,&xfe2b,&xmg2b,&xmn2b,&xti4b,&xal3b,&xfe3b);
+    double R = GH_rhm_R;
+    double r0=r[0],r1=r[1],r2=r[2],r3=r[3], s0=s[0],s1=s[1],s2=s[2];
+    double sumr = r0+r1+r2+r3;
+
+    *d00 = 0.25*R*t*( 1.0/xfe2a + 1.0/xti4a + 1.0/xfe2b + 1.0/xti4b )
+         - 2.0*(GH_rhm_dhilm+(p-1.0)*GH_rhm_dvilm+((GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)/2.0+(GH_rhm_whhmilm2+(p-1.0)*GH_rhm_wvhmilm2)/4.0)*(1.0-sumr)
+                  -(GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*r3/2.0)
+         + 2.0*(GH_rhm_whilm+(p-1.0)*GH_rhm_wvilm)*(r0*r0-6.0*s0*s0);
+    *d01 = 0.25*R*t*( 1.0/xti4a + 1.0/xti4b ) + (GH_rhm_whilmgei-GH_rhm_whilmgeiT)/2.0;
+    *d02 = 0.25*R*t*( 1.0/xti4a + 1.0/xti4b ) + (GH_rhm_whilmpyr-GH_rhm_whilmpyrT)/2.0;
+    *d11 = 0.25*R*t*( 1.0/xmg2a + 1.0/xti4a + 1.0/xmg2b + 1.0/xti4b )
+         - 2.0*(GH_rhm_dhgei+(p-1.0)*GH_rhm_dvgei+((GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)/2.0+(GH_rhm_whhmgei2+(p-1.0)*GH_rhm_wvhmgei2)/4.0)*(1.0-sumr)
+                  -(GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*r3/2.0)
+         + 2.0*(GH_rhm_whgei+(p-1.0)*GH_rhm_wvgei)*(r1*r1-6.0*s1*s1);
+    *d12 = 0.25*R*t*( 1.0/xti4a + 1.0/xti4b ) + (GH_rhm_whgeipyr-GH_rhm_whgeipyrT)/2.0;
+    *d22 = 0.25*R*t*( 1.0/xmn2a + 1.0/xti4a + 1.0/xmn2b + 1.0/xti4b )
+         - 2.0*(GH_rhm_dhpyr+(p-1.0)*GH_rhm_dvpyr+((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(1.0-sumr)
+                  -(GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*r3/2.0)
+         + 2.0*(GH_rhm_whpyr+(p-1.0)*GH_rhm_wvpyr)*(r2*r2-6.0*s2*s2);
+}
+/* Joint order-parameter solve, ported directly from xMELTS' own order()
+   function (rhomsghiorso.c) - see this block's header comment above for
+   why this must match the source's exact algorithm (undamped full Newton
+   step + simple box clamp), not a different-but-plausible substitute. */
+static void GH_rhm_solve_s_from(const double r[4], double t, double p,
+                                 double *s0o, double *s1o, double *s2o){
+    const int maxIter = 100; /* xMELTS' own MAX_ITER (rhomsghiorso.c) */
+    double eps = 2.220446049250313e-16;
+    double s[3] = { 0.9*r[0], 0.9*r[1], 0.9*r[2] };
+    double sOld[3] = { 2.0, 2.0, 2.0 };
+    int iter = 0;
+    while ( (fabs(s[0]-sOld[0]) > 10.0*eps ||
+             fabs(s[1]-sOld[1]) > 10.0*eps ||
+             fabs(s[2]-sOld[2]) > 10.0*eps) && iter < maxIter ){
+        double dgds0,dgds1,dgds2;
+        GH_rhm_dgds(r, s, t, p, &dgds0, &dgds1, &dgds2);
+        double d00,d01,d02,d11,d12,d22;
+        GH_rhm_d2gds2(r, s, t, p, &d00,&d01,&d02,&d11,&d12,&d22);
+
+        sOld[0]=s[0]; sOld[1]=s[1]; sOld[2]=s[2];
+
+        /* solve [[d00,d01,d02],[d01,d11,d12],[d02,d12,d22]]*delta = -[dgds0,dgds1,dgds2]
+           via Cramer's rule (no shared linear-algebra utility exists in
+           this codebase - same "same math, no gaussj" approach spn's own
+           joint solve uses). */
+        double g0=-dgds0, g1=-dgds1, g2=-dgds2;
+        double det  = d00*(d11*d22-d12*d12) - d01*(d01*d22-d12*d02) + d02*(d01*d12-d11*d02);
+        double det0 =  g0*(d11*d22-d12*d12) - d01*( g1*d22-d12* g2) + d02*( g1*d12-d11* g2);
+        double det1 = d00*( g1*d22- g2*d12) -  g0*(d01*d22-d12*d02) + d02*(d01* g2- g1*d02);
+        double det2 = d00*(d11* g2-d12* g1) - d01*(d01* g2-d12* g0) +  g0*(d01*d12-d11*d02);
+        double delta0 = det0/det, delta1 = det1/det, delta2 = det2/det;
+
+        s[0] = sOld[0] + delta0;
+        s[1] = sOld[1] + delta1;
+        s[2] = sOld[2] + delta2;
+
+        /* box-clamp into (-r[i],r[i]) - MIN then MAX, in that order,
+           matching xMELTS' own order() exactly (including its degenerate-
+           but-well-defined behavior of pinning s to +eps when r[i]=0). */
+        for (int i = 0; i < 3; i++){
+            s[i] = (s[i] < r[i]-eps) ? s[i] : r[i]-eps;
+            s[i] = (s[i] > -r[i]+eps) ? s[i] : -r[i]+eps;
+        }
+        iter++;
+    }
+    *s0o = s[0]; *s1o = s[1]; *s2o = s[2];
+}
+static double GH_rhm_S(const double r[4], const double s[3], double t){
+    double xfe2a,xmg2a,xmn2a,xti4a,xal3a,xfe3a,xfe2b,xmg2b,xmn2b,xti4b,xal3b,xfe3b;
+    GH_rhm_site_fracs(r,s,&xfe2a,&xmg2a,&xmn2a,&xti4a,&xal3a,&xfe3a,&xfe2b,&xmg2b,&xmn2b,&xti4b,&xal3b,&xfe3b);
+    double xfe2ID,xmg2ID,xmn2ID,xti4ID,xal3ID,xfe3ID;
+    GH_rhm_ID_fracs(r,&xfe2ID,&xmg2ID,&xmn2ID,&xti4ID,&xal3ID,&xfe3ID);
+    double R = GH_rhm_R;
+
+    return -R*( xfe2a*log(xfe2a) + xmg2a*log(xmg2a) + xmn2a*log(xmn2a) + xti4a*log(xti4a)
+              + xfe2b*log(xfe2b) + xmg2b*log(xmg2b) + xmn2b*log(xmn2b) + xti4b*log(xti4b)
+              - 2.0*xfe2ID*log(xfe2ID) - 2.0*xmg2ID*log(xmg2ID) - 2.0*xmn2ID*log(xmn2ID) - 2.0*xti4ID*log(xti4ID) )
+         - (1.0-GH_rhm_SROconst)*2.0*R*( xfe3ID*log(xfe3ID) + xal3ID*log(xal3ID) + xfe2ID*log(xfe2ID)
+                                        + xmg2ID*log(xmg2ID) + xmn2ID*log(xmn2ID) + xti4ID*log(xti4ID) )
+         + GH_rhm_SROconst*2.0*R*log(2.0);
+}
+static double GH_rhm_H(const double r[4], const double s[3], double p){
+    double r0=r[0],r1=r[1],r2=r[2],r3=r[3], s0=s[0],s1=s[1],s2=s[2];
+    double sumr = r0+r1+r2+r3;
+    return
+          ((GH_rhm_whhmilm+(p-1.0)*GH_rhm_wvhmilm)+(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*(1.0-2.0*r0-r1-r2-r3))*r0*(1.0-sumr)
+        + ((GH_rhm_whhmgei+(p-1.0)*GH_rhm_wvhmgei)+(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*(1.0-r0-2.0*r1-r2-r3))*r1*(1.0-sumr)
+        + ((GH_rhm_whhmpyr+(p-1.0)*GH_rhm_wvhmpyr)+(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*(1.0-r0-r1-2.0*r2-r3))*r2*(1.0-sumr)
+        +  GH_rhm_whmcrn*r3*(1.0-sumr)
+        + (GH_rhm_whilmgei+(p-1.0)*GH_rhm_wvilmgei+GH_rhm_whilmgeiT)*r0*r1/2.0 + (GH_rhm_whilmgei-GH_rhm_whilmgeiT)*s0*s1/2.0
+        + (GH_rhm_whilmpyr+(p-1.0)*GH_rhm_wvilmpyr+GH_rhm_whilmpyrT)*r0*r2/2.0 + (GH_rhm_whilmpyr-GH_rhm_whilmpyrT)*s0*s2/2.0
+        + (GH_rhm_whgeipyr+(p-1.0)*GH_rhm_wvgeipyr+GH_rhm_whgeipyrT)*r1*r2/2.0 + (GH_rhm_whgeipyr-GH_rhm_whgeipyrT)*s1*s2/2.0
+        + (GH_rhm_wcrnilm+(GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*(r0-r3))*r0*r3
+        + (GH_rhm_wcrngei+(GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*(r1-r3))*r1*r3
+        + (GH_rhm_wcrnpyr+(GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*(r2-r3))*r2*r3
+        + (GH_rhm_dhilm+(p-1.0)*GH_rhm_dvilm+((GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)/2.0+(GH_rhm_whhmilm2+(p-1.0)*GH_rhm_wvhmilm2)/4.0)*(1.0-sumr)
+                    -(GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*r3/2.0)*(r0*r0-s0*s0)
+        + (GH_rhm_dhgei+(p-1.0)*GH_rhm_dvgei+((GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)/2.0+(GH_rhm_whhmgei2+(p-1.0)*GH_rhm_wvhmgei2)/4.0)*(1.0-sumr)
+                    -(GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*r3/2.0)*(r1*r1-s1*s1)
+        + (GH_rhm_dhpyr+(p-1.0)*GH_rhm_dvpyr+((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(1.0-sumr)
+                    -(GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*r3/2.0)*(r2*r2-s2*s2)
+        + (GH_rhm_whilm+(p-1.0)*GH_rhm_wvilm)*s0*s0*(r0*r0-s0*s0)
+        + (GH_rhm_whgei+(p-1.0)*GH_rhm_wvgei)*s1*s1*(r1*r1-s1*s1)
+        + (GH_rhm_whpyr+(p-1.0)*GH_rhm_wvpyr)*s2*s2*(r2*r2-s2*s2);
+}
+static void GH_rhm_dGdr(const double r[4], const double s[3], double t, double p,
+                         double *dgdr0,double *dgdr1,double *dgdr2,double *dgdr3){
+    double xfe2a,xmg2a,xmn2a,xti4a,xal3a,xfe3a,xfe2b,xmg2b,xmn2b,xti4b,xal3b,xfe3b;
+    GH_rhm_site_fracs(r,s,&xfe2a,&xmg2a,&xmn2a,&xti4a,&xal3a,&xfe3a,&xfe2b,&xmg2b,&xmn2b,&xti4b,&xal3b,&xfe3b);
+    double xfe2ID,xmg2ID,xmn2ID,xti4ID,xal3ID,xfe3ID;
+    GH_rhm_ID_fracs(r,&xfe2ID,&xmg2ID,&xmn2ID,&xti4ID,&xal3ID,&xfe3ID);
+    double R = GH_rhm_R;
+    double r0=r[0],r1=r[1],r2=r[2],r3=r[3], s0=s[0],s1=s[1],s2=s[2];
+    double sumr = r0+r1+r2+r3;
+
+    *dgdr0 = R*t*( 0.5*log(xfe2a) + 0.5*log(xti4a) + 0.5*log(xfe2b) + 0.5*log(xti4b) - log(xfe2ID) - log(xti4ID) )
+           + (1.0-GH_rhm_SROconst)*2.0*R*t*(- log(xfe3ID) + 0.5*log(xfe2ID) + 0.5*log(xti4ID) )
+           + ((GH_rhm_whhmilm+(p-1.0)*GH_rhm_wvhmilm)+(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*(1.0-2.0*r0-r1-r2-r3))*(1.0-2.0*r0-r1-r2-r3)
+           - ((GH_rhm_whhmgei+(p-1.0)*GH_rhm_wvhmgei)+(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*(1.0-r0-2.0*r1-r2-r3))*r1
+           - ((GH_rhm_whhmpyr+(p-1.0)*GH_rhm_wvhmpyr)+(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*(1.0-r0-r1-2.0*r2-r3))*r2
+           - 2.0*(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*r0*(1.0-sumr)
+           -     (GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*r1*(1.0-sumr)
+           -     (GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*r2*(1.0-sumr)
+           -  GH_rhm_whmcrn*r3
+           + (GH_rhm_whilmgei+(p-1.0)*GH_rhm_wvilmgei+GH_rhm_whilmgeiT)*r1/2.0
+           + (GH_rhm_whilmpyr+(p-1.0)*GH_rhm_wvilmpyr+GH_rhm_whilmpyrT)*r2/2.0
+           + (GH_rhm_wcrnilm+(GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*(r0-r3))*r3 + (GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*r0*r3
+           + 2.0*(GH_rhm_dhilm+(p-1.0)*GH_rhm_dvilm+((GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)/2.0+(GH_rhm_whhmilm2+(p-1.0)*GH_rhm_wvhmilm2)/4.0)*(1.0-sumr)
+                      -(GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*r3/2.0)*r0
+           - ((GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)/2.0+(GH_rhm_whhmilm2+(p-1.0)*GH_rhm_wvhmilm2)/4.0)*(r0*r0-s0*s0)
+           - ((GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)/2.0+(GH_rhm_whhmgei2+(p-1.0)*GH_rhm_wvhmgei2)/4.0)*(r1*r1-s1*s1)
+           - ((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(r2*r2-s2*s2)
+           + 2.0*(GH_rhm_whilm+(p-1.0)*GH_rhm_wvilm)*s0*s0*r0;
+
+    *dgdr1 = R*t*( 0.5*log(xmg2a) + 0.5*log(xti4a) + 0.5*log(xmg2b) + 0.5*log(xti4b) - log(xmg2ID) - log(xti4ID) )
+           + (1.0-GH_rhm_SROconst)*2.0*R*t*(- log(xfe3ID) + 0.5*log(xmg2ID) + 0.5*log(xti4ID) )
+           - ((GH_rhm_whhmilm+(p-1.0)*GH_rhm_wvhmilm)+(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*(1.0-2.0*r0-r1-r2-r3))*r0
+           + ((GH_rhm_whhmgei+(p-1.0)*GH_rhm_wvhmgei)+(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*(1.0-r0-2.0*r1-r2-r3))*(1.0-r0-2.0*r1-r2-r3)
+           - ((GH_rhm_whhmpyr+(p-1.0)*GH_rhm_wvhmpyr)+(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*(1.0-r0-r1-2.0*r2-r3))*r2
+           -     (GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*r0*(1.0-sumr)
+           - 2.0*(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*r1*(1.0-sumr)
+           -     (GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*r2*(1.0-sumr)
+           -  GH_rhm_whmcrn*r3
+           + (GH_rhm_whilmgei+(p-1.0)*GH_rhm_wvilmgei+GH_rhm_whilmgeiT)*r0/2.0
+           + (GH_rhm_whgeipyr+(p-1.0)*GH_rhm_wvgeipyr+GH_rhm_whgeipyrT)*r2/2.0
+           + (GH_rhm_wcrngei+(GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*(r1-r3))*r3 + (GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*r1*r3
+           - ((GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)/2.0+(GH_rhm_whhmilm2+(p-1.0)*GH_rhm_wvhmilm2)/4.0)*(r0*r0-s0*s0)
+           + 2.0*(GH_rhm_dhgei+(p-1.0)*GH_rhm_dvgei+((GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)/2.0+(GH_rhm_whhmgei2+(p-1.0)*GH_rhm_wvhmgei2)/4.0)*(1.0-sumr)
+                      -(GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*r3/2.0)*r1
+           - ((GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)/2.0+(GH_rhm_whhmgei2+(p-1.0)*GH_rhm_wvhmgei2)/4.0)*(r1*r1-s1*s1)
+           - ((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(r2*r2-s2*s2)
+           + 2.0*(GH_rhm_whgei+(p-1.0)*GH_rhm_wvgei)*s1*s1*r1;
+
+    *dgdr2 = R*t*( 0.5*log(xmn2a) + 0.5*log(xti4a) + 0.5*log(xmn2b) + 0.5*log(xti4b) - log(xmn2ID) - log(xti4ID) )
+           + (1.0-GH_rhm_SROconst)*2.0*R*t*(- log(xfe3ID) + 0.5*log(xmn2ID) + 0.5*log(xti4ID) )
+           - ((GH_rhm_whhmilm+(p-1.0)*GH_rhm_wvhmilm)+(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*(1.0-2.0*r0-r1-r2-r3))*r0
+           - ((GH_rhm_whhmgei+(p-1.0)*GH_rhm_wvhmgei)+(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*(1.0-r0-2.0*r1-r2-r3))*r1
+           + ((GH_rhm_whhmpyr+(p-1.0)*GH_rhm_wvhmpyr)+(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*(1.0-r0-r1-2.0*r2-r3))*(1.0-r0-r1-2.0*r2-r3)
+           -     (GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*r0*(1.0-sumr)
+           -     (GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*r1*(1.0-sumr)
+           - 2.0*(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*r2*(1.0-sumr)
+           -  GH_rhm_whmcrn*r3
+           + (GH_rhm_whilmpyr+(p-1.0)*GH_rhm_wvilmpyr+GH_rhm_whilmpyrT)*r0/2.0
+           + (GH_rhm_whgeipyr+(p-1.0)*GH_rhm_wvgeipyr+GH_rhm_whgeipyrT)*r1/2.0
+           + (GH_rhm_wcrnpyr+(GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*(r2-r3))*r3 + (GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*r2*r3
+           - ((GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)/2.0+(GH_rhm_whhmilm2+(p-1.0)*GH_rhm_wvhmilm2)/4.0)*(r0*r0-s0*s0)
+           - ((GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)/2.0+(GH_rhm_whhmgei2+(p-1.0)*GH_rhm_wvhmgei2)/4.0)*(r1*r1-s1*s1)
+           + 2.0*(GH_rhm_dhpyr+(p-1.0)*GH_rhm_dvpyr+((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(1.0-sumr)
+                      -(GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*r3/2.0)*r2
+           - ((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(r2*r2-s2*s2)
+           + 2.0*(GH_rhm_whpyr+(p-1.0)*GH_rhm_wvpyr)*s2*s2*r2;
+
+    *dgdr3 = (1.0-GH_rhm_SROconst)*2.0*R*t*(- log(xfe3ID) + log(xal3ID) )
+           - ((GH_rhm_whhmilm+(p-1.0)*GH_rhm_wvhmilm)+(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*(1.0-2.0*r0-r1-r2-r3))*r0
+           - ((GH_rhm_whhmgei+(p-1.0)*GH_rhm_wvhmgei)+(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*(1.0-r0-2.0*r1-r2-r3))*r1
+           - ((GH_rhm_whhmpyr+(p-1.0)*GH_rhm_wvhmpyr)+(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*(1.0-r0-r1-2.0*r2-r3))*r2
+           - (GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*r0*(1.0-sumr)
+           - (GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*r1*(1.0-sumr)
+           - (GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*r2*(1.0-sumr)
+           +  GH_rhm_whmcrn*(1.0-r0-r1-r2-2.0*r3)
+           + (GH_rhm_wcrnilm+(GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*(r0-r3))*r0 - (GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*r0*r3
+           + (GH_rhm_wcrngei+(GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*(r1-r3))*r1 - (GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*r1*r3
+           + (GH_rhm_wcrnpyr+(GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*(r2-r3))*r2 - (GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*r2*r3
+           - ((GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)/2.0 + (GH_rhm_whhmilm2+(p-1.0)*GH_rhm_wvhmilm2)/4.0 + (GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)/2.0)*(r0*r0-s0*s0)
+           - ((GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)/2.0 + (GH_rhm_whhmgei2+(p-1.0)*GH_rhm_wvhmgei2)/4.0 + (GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)/2.0)*(r1*r1-s1*s1)
+           - ((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0 + (GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0 + (GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)/2.0)*(r2*r2-s2*s2);
+}
+double obj_gh_rhm(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    double T    = d->T;
+    double Pbar = d->P*1000.0;   /* kbar -> bar, matching xMELTS' own P=Pr=1bar reference */
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 5; i++){ p[i] = x[i]; }
+    /* r0=Xilm=p[2], r1=Xgei=p[0], r2=Xpyr=p[3], r3=Xcrn=p[4]; p[1]=Xhem dependent */
+    double r[4] = { p[2], p[0], p[3], p[4] };
+
+    double s0, s1, s2;
+    GH_rhm_solve_s_from(r, T, Pbar, &s0, &s1, &s2);
+    double s[3] = { s0, s1, s2 };
+
+    double Gex = GH_rhm_H(r, s, Pbar) - T*GH_rhm_S(r, s, T);
+
+    double dgdr0, dgdr1, dgdr2, dgdr3;
+    GH_rhm_dGdr(r, s, T, Pbar, &dgdr0, &dgdr1, &dgdr2, &dgdr3);
+
+    double dGex[5];
+    dGex[0] = dgdr1;   /* gei */
+    dGex[1] = 0.0;     /* hem, dependent endmember */
+    dGex[2] = dgdr0;   /* ilm */
+    dGex[3] = dgdr2;   /* pyr */
+    dGex[4] = dgdr3;   /* crn */
+
+    for (int i = 0; i < 5; i++){
+        double mu = Gex;
+        for (int k = 0; k < 5; k++){
+            double delta_ik = (i==k) ? 1.0 : 0.0;
+            mu += (delta_ik - p[k])*dGex[k];
+        }
+        mu_Gex[i] = mu/1000.0;   /* J -> kJ */
+        d->sf[i]  = p[i];
+    }
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 5; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = 0.0;
+    for (int i = 0; i < 5; i++){ d->df_raw += (mu_Gex[i] + gb[i])*p[i]; }
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        for (int i = 0; i < 5; i++){
+            grad[i] = (mu_Gex[i] + gb[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+        }
+    }
+    return d->df;
+}
+
+/**
+    Nepheline (Sack & Ghiorso 1995): from xMELTS' sources/nepheline.c.
+    NR=3 (r0=X(k-nepheline), r1=X(vc-nepheline), r2=X(ca-nepheline),
+    Xna-nepheline=1-r0-r1-r2 dependent), NS=1 (single K/Na large-vs-small
+    site-ordering parameter s0). p[]/EM_list order (nane,kne,vcne,cane) is
+    a direct r-basis relabeling: p[0]=Xna-nepheline dependent, p[1]=r0,
+    p[2]=r1, p[3]=r2 - same pattern rhm/spn already use.
+
+    W-parameter table ported verbatim (names/values) from nepheline.c's
+    file-scope #defines. Of the 15 originally-named W/A parameters, 9
+    (DWKNALS, DWKNASS, DWVNASS, DWVNALS, DWVKLS, AWLS, AWSS, AWVNA, AWVK)
+    and 3 more (WCANA, WCAK, WPLAG) are all 0.0 in xMELTS' own calibration -
+    the (large) polynomial terms they multiply in the source's H/DGDR/
+    D2GDR2 macros are simply omitted below rather than carried as always-0
+    additions (same simplification approach used for rhm's 6 zero cross-
+    terms).
+
+    The order-parameter solve (GH_nph_solve_s0) ports xMELTS' own order()
+    function (nepheline.c) as faithfully as NS=1 allows: a Newton step each
+    iteration (trivial 1x1 "matrix solve", no Cramer's rule needed), then a
+    damped line-search (lambda halved) against ALL SIX site fractions'
+    [0,1] (or [0,1/3] for xcass) feasibility bounds simultaneously - unlike
+    rhm's simple box-clamp, this matches nepheline.c's own algorithm
+    exactly, including its distinctive "re-project s from the (possibly
+    clamped) site fractions after each step" behavior (s = xkls-xkss,
+    recomputed from clamped site fractions rather than used directly from
+    the Newton step - see nepheline.c order(), lines ~874-909).
+
+    A PENALTY/r1 barrier term (PENALTY=sqrt(DBL_EPSILON)) is added to G to
+    keep the vc-nepheline mole fraction away from exactly 0, ported
+    unconditionally from nepheline.c's own #define G (no DBL_MAX special
+    case needed here, unlike kalsilite.c's copy of the same guard - gh's
+    NLopt bounds already keep every xeos, including r1=p[2], at or above
+    eps > 0, so r1 is never exactly 0 in gh's own evaluation).
+
+    Total molar G = sum(p[i]*gbase[i]) + Gex(r,s0*(r)), where gbase[i]
+    already carries each endmember's own standard-state correction (na-
+    nepheline/k-nepheline plain Berman; vc-nepheline/ca-nepheline their
+    real Vinet-EOS "phantom reaction" correction - see GH_vcneph_G/
+    GH_caneph_G in GH_gem_function.c) - matching xMELTS' own construction
+    exactly, since nepheline.c's H/S/V macros contain NO endmember-linear
+    terms (DH1..DH4 are defined in nepheline.c but never actually used
+    there - confirmed by direct inspection - they're purely informational,
+    matching the values baked into the endmember table's own H ref
+    entries instead). dGex/dp uses the envelope theorem (DGDR0..2 at the
+    converged s0*, no ds/dr needed) plus the same delta_ik-p_k tangent-
+    plane trick used throughout gh.
+*/
+static const double GH_nph_HEX=-31744.63, GH_nph_SEX=-20.92, GH_nph_VEX=-1.05;
+static const double GH_nph_HX=-13893.18, GH_nph_SX=12.55, GH_nph_VX=0.0;
+static const double GH_nph_H23=73520.0, GH_nph_H24=42560.0, GH_nph_S23=0.0, GH_nph_S24=0.0;
+static const double GH_nph_WHNAKLS=6861.76, GH_nph_WVNAKLS=0.33, GH_nph_WHNAKSS=51002.96, GH_nph_WVNAKSS=0.54;
+static const double GH_nph_WVN=14644.0, GH_nph_WVK=8368.0;
+static const double GH_nph_S4=-15.8765;
+static const double GH_nph_R = 8.3143;
+static const double GH_nph_PENALTY = 1.4901161193847656e-08; /* sqrt(DBL_EPSILON) */
+
+static void GH_nph_site_fracs(double r0, double r1, double r2, double s0,
+    double *xkls, double *xvcls, double *xnals, double *xkss, double *xcass, double *xnass){
+    double eps = 2.220446049250313e-16;
+    double v;
+    v = r0 + 3.0*s0/4.0;                    *xkls  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = r1 + r2;                            *xvcls = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = 1.0 - r0 - r1 - r2 - 3.0*s0/4.0;    *xnals = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = r0 - s0/4.0;                        *xkss  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = r2/3.0;                             *xcass = (v<eps)?eps:((v>1.0/3.0-eps)?1.0/3.0-eps:v);
+    v = 1.0 - r0 - r2/3.0 + s0/4.0;         *xnass = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+}
+static double GH_nph_dgds0(double r0, double r1, double r2, double s0, double t, double p){
+    double xkls,xvcls,xnals,xkss,xcass,xnass;
+    GH_nph_site_fracs(r0,r1,r2,s0,&xkls,&xvcls,&xnals,&xkss,&xcass,&xnass);
+    double R = GH_nph_R;
+    double GEX = GH_nph_HEX - t*GH_nph_SEX + (p-1.0)*GH_nph_VEX;
+    double GX  = GH_nph_HX  - t*GH_nph_SX  + (p-1.0)*GH_nph_VX;
+    double WNAKLS = GH_nph_WHNAKLS + (p-1.0)*GH_nph_WVNAKLS;
+    double WNAKSS = GH_nph_WHNAKSS + (p-1.0)*GH_nph_WVNAKSS;
+    double G23 = GH_nph_H23 - t*GH_nph_S23;
+
+    return R*t*(0.75*log(xkls) - 0.75*log(xnals) - 0.75*log(xkss) + 0.75*log(xnass))
+         + 0.25*(2.0*GEX+GX+3.0*WNAKLS-WNAKSS)
+         + (1.0/8.0)*(3.0*GX-9.0*WNAKLS-WNAKSS)*s0
+         - 0.5*(GX+3.0*WNAKLS-WNAKSS)*r0
+         + 0.125*(GX-GEX-2.0*G23-6.0*WNAKLS-6.0*GH_nph_WVN+6.0*GH_nph_WVK)*r1
+         + (18.0*GH_nph_WVN-18.0*GH_nph_WVK-18.0*WNAKLS+4.0*WNAKSS-9.0*GEX-3.0*GX+6.0*G23-36.0*(GH_nph_H24-t*GH_nph_S24))*r2/24.0;
+}
+static double GH_nph_d2gds0s0(double r0, double r1, double r2, double s0, double t, double p){
+    double xkls,xvcls,xnals,xkss,xcass,xnass;
+    GH_nph_site_fracs(r0,r1,r2,s0,&xkls,&xvcls,&xnals,&xkss,&xcass,&xnass);
+    double R = GH_nph_R;
+    double GX  = GH_nph_HX  - t*GH_nph_SX  + (p-1.0)*GH_nph_VX;
+    double WNAKLS = GH_nph_WHNAKLS + (p-1.0)*GH_nph_WVNAKLS;
+    double WNAKSS = GH_nph_WHNAKSS + (p-1.0)*GH_nph_WVNAKSS;
+
+    return R*t*(0.75*0.75/xkls + 0.75*0.75/xnals + 3.0*0.25*0.25/xkss + 3.0*0.25*0.25/xnass)
+         + (1.0/8.0)*(3.0*GX-9.0*WNAKLS-WNAKSS);
+}
+/* Joint (here: scalar, NS=1) order-parameter solve, ported directly from
+   xMELTS' own order() function (nepheline.c) - see this block's header
+   comment for why the damped line-search-against-site-fractions and the
+   "re-project s from the clamped site fractions" step must both be
+   replicated exactly, not simplified to a plain box-clamp. */
+static double GH_nph_solve_s0(double r0, double r1, double r2, double t, double p){
+    const int MAX_ITER = 200; /* xMELTS' own MAX_ITER (nepheline.c) */
+    double eps = 2.220446049250313e-16;
+
+    double sNew = -4.0*r0*(r1+2.0*r2/3.0)/(4.0-r1-2.0*r2);
+    double xkls,xvcls,xnals,xkss,xcass,xnass;
+    GH_nph_site_fracs(r0,r1,r2,sNew,&xkls,&xvcls,&xnals,&xkss,&xcass,&xnass);
+    sNew = xkls - xkss;
+
+    double sOld = 2.0;
+    int iter = 0;
+    while ((fabs(sNew-sOld) > 10.0*eps) && (iter < MAX_ITER)){
+        double s0 = sNew;
+        double dgds  = GH_nph_dgds0(r0,r1,r2,s0,t,p);
+        double d2gds2 = GH_nph_d2gds0s0(r0,r1,r2,s0,t,p);
+        sOld = s0;
+
+        double sCorr = -dgds/d2gds2;
+        double lambda = 1.0;
+        double sTrial = sOld + lambda*sCorr;
+        double xkls_,xvcls_,xnals_,xkss_,xcass_,xnass_;
+        GH_nph_site_fracs(r0,r1,r2,sTrial,&xkls_,&xvcls_,&xnals_,&xkss_,&xcass_,&xnass_);
+        /* re-derive the UNCLAMPED site fractions (site_fracs already
+           clamps) to test feasibility, matching the source's own
+           unclamped xkls/xvcls/... comparison in its while() guard */
+        double rxkls  = r0 + 3.0*sTrial/4.0;
+        double rxvcls = r1 + r2;
+        double rxnals = 1.0 - r0 - r1 - r2 - 3.0*sTrial/4.0;
+        double rxkss  = r0 - sTrial/4.0;
+        double rxcass = r2/3.0;
+        double rxnass = 1.0 - r0 - r2/3.0 + sTrial/4.0;
+        while ((rxkls<0.0 || rxkls>1.0 || rxvcls<0.0 || rxvcls>1.0 ||
+                rxnals<0.0 || rxnals>1.0 || rxkss<0.0  || rxkss>1.0 ||
+                rxcass<0.0 || rxcass>1.0/3.0 || rxnass<0.0 || rxnass>1.0)
+               && lambda > eps){
+            lambda /= 2.0;
+            sTrial = sOld + lambda*sCorr;
+            rxkls  = r0 + 3.0*sTrial/4.0;
+            rxvcls = r1 + r2;
+            rxnals = 1.0 - r0 - r1 - r2 - 3.0*sTrial/4.0;
+            rxkss  = r0 - sTrial/4.0;
+            rxcass = r2/3.0;
+            rxnass = 1.0 - r0 - r2/3.0 + sTrial/4.0;
+        }
+
+        GH_nph_site_fracs(r0,r1,r2,sTrial,&xkls,&xvcls,&xnals,&xkss,&xcass,&xnass);
+        sNew = xkls - xkss;
+        iter++;
+    }
+    return sNew;
+}
+static double GH_nph_S(double r0, double r1, double r2, double s0, double t){
+    double xkls,xvcls,xnals,xkss,xcass,xnass;
+    GH_nph_site_fracs(r0,r1,r2,s0,&xkls,&xvcls,&xnals,&xkss,&xcass,&xnass);
+    double R = GH_nph_R;
+
+    return GH_nph_S4*r2 - R*(xkls*log(xkls) + xvcls*log(xvcls) +
+             xnals*log(xnals) - (1.0-3.0*xcass)*log(1.0-3.0*xcass) +
+             3.0*xkss*log(xkss) + 3.0*xcass*log(xcass) + 3.0*xnass*log(xnass))
+         + 0.25*(2.0*GH_nph_SEX+GH_nph_SX)*s0 + GH_nph_SX*r0*(1.0-r0)
+         + (3.0/16.0)*GH_nph_SX*s0*s0 - 0.5*GH_nph_SX*r0*s0
+         + 0.5*(2.0*GH_nph_S23+GH_nph_SEX-GH_nph_SX)*r0*r1 + 0.125*(GH_nph_SX-GH_nph_SEX-2.0*GH_nph_S23)*r1*s0
+         + (6.0*GH_nph_S23+3.0*GH_nph_SEX-15.0*GH_nph_SX)*r0*r2/18.0
+         + (-9.0*GH_nph_SEX-3.0*GH_nph_SX+6.0*GH_nph_S23-36.0*GH_nph_S24)*r2*s0/24.0;
+}
+static double GH_nph_H(double r0, double r1, double r2, double s0, double p){
+    return 0.25*(2.0*GH_nph_HEX+GH_nph_HX+3.0*GH_nph_WHNAKLS-GH_nph_WHNAKSS)*s0
+         + (GH_nph_HX+GH_nph_WHNAKLS+GH_nph_WHNAKSS)*r0*(1.0-r0)
+         + (1.0/16.0)*(3.0*GH_nph_HX-9.0*GH_nph_WHNAKLS-GH_nph_WHNAKSS)*s0*s0
+         - 0.5*(GH_nph_HX+3.0*GH_nph_WHNAKLS-GH_nph_WHNAKSS)*r0*s0 + GH_nph_WVN*r1*(1.0-r1)
+         + 0.5*(2.0*GH_nph_H23+GH_nph_HEX-GH_nph_HX-2.0*GH_nph_WHNAKLS-2.0*GH_nph_WVN+2.0*GH_nph_WVK)*r0*r1
+         + 0.125*(GH_nph_HX-GH_nph_HEX-2.0*GH_nph_H23-6.0*GH_nph_WHNAKLS-6.0*GH_nph_WVN+6.0*GH_nph_WVK)*r1*s0
+         + (6.0*GH_nph_H23+3.0*GH_nph_HEX-15.0*GH_nph_HX-18.0*GH_nph_WHNAKLS-4.0*GH_nph_WHNAKSS+18.0*GH_nph_WVN-18.0*GH_nph_WVK)*r0*r2/18.0
+         + (-GH_nph_WVN)*r1*r2
+         + (18.0*GH_nph_WVN-18.0*GH_nph_WVK-18.0*GH_nph_WHNAKLS+4.0*GH_nph_WHNAKSS-9.0*GH_nph_HEX-3.0*GH_nph_HX+6.0*GH_nph_H23-36.0*GH_nph_H24)*r2*s0/24.0;
+}
+static double GH_nph_V(double r0, double r1, double r2, double s0, double p){
+    return 0.25*(2.0*GH_nph_VEX+GH_nph_VX+3.0*GH_nph_WVNAKLS-GH_nph_WVNAKSS)*s0
+         + (GH_nph_VX+GH_nph_WVNAKLS+GH_nph_WVNAKSS)*r0*(1.0-r0)
+         + (1.0/16.0)*(3.0*GH_nph_VX-9.0*GH_nph_WVNAKLS-GH_nph_WVNAKSS)*s0*s0
+         - 0.5*(GH_nph_VX+3.0*GH_nph_WVNAKLS-GH_nph_WVNAKSS)*r0*s0
+         + 0.5*(GH_nph_VEX-GH_nph_VX-2.0*GH_nph_WVNAKLS)*r0*r1
+         + 0.125*(GH_nph_VX-GH_nph_VEX-6.0*GH_nph_WVNAKLS)*r1*s0
+         + (3.0*GH_nph_VEX-15.0*GH_nph_VX-18.0*GH_nph_WVNAKLS-4.0*GH_nph_WVNAKSS)*r0*r2/18.0
+         + (-18.0*GH_nph_WVNAKLS+4.0*GH_nph_WVNAKSS-9.0*GH_nph_VEX-3.0*GH_nph_VX)*r2*s0/24.0;
+}
+static void GH_nph_dGdr(double r0, double r1, double r2, double s0, double t, double p,
+                         double *dgdr0, double *dgdr1, double *dgdr2){
+    double xkls,xvcls,xnals,xkss,xcass,xnass;
+    GH_nph_site_fracs(r0,r1,r2,s0,&xkls,&xvcls,&xnals,&xkss,&xcass,&xnass);
+    double R = GH_nph_R;
+    double GEX = GH_nph_HEX - t*GH_nph_SEX + (p-1.0)*GH_nph_VEX;
+    double GX  = GH_nph_HX  - t*GH_nph_SX  + (p-1.0)*GH_nph_VX;
+    double WNAKLS = GH_nph_WHNAKLS + (p-1.0)*GH_nph_WVNAKLS;
+    double WNAKSS = GH_nph_WHNAKSS + (p-1.0)*GH_nph_WVNAKSS;
+    double G23 = GH_nph_H23 - t*GH_nph_S23;
+    double G24 = GH_nph_H24 - t*GH_nph_S24;
+    double G4  = -t*GH_nph_S4;
+
+    *dgdr0 = R*t*(log(xkls) - log(xnals) + 3.0*log(xkss) - 3.0*log(xnass))
+           + (GX+WNAKLS+WNAKSS)*(1.0-2.0*r0)
+           - 0.5*(GX+3.0*WNAKLS-WNAKSS)*s0
+           + 0.5*(2.0*G23+GEX-GX-2.0*WNAKLS-2.0*GH_nph_WVN+2.0*GH_nph_WVK)*r1
+           + (6.0*G23+3.0*GEX-15.0*GX-18.0*WNAKLS-4.0*WNAKSS+18.0*GH_nph_WVN-18.0*GH_nph_WVK)*r2/18.0;
+
+    *dgdr1 = R*t*(log(xvcls) - log(xnals)) + GH_nph_WVN*(1.0-2.0*r1)
+           + 0.5*(2.0*G23+GEX-GX-2.0*WNAKLS-2.0*GH_nph_WVN+2.0*GH_nph_WVK)*r0
+           + 0.125*(GX-GEX-2.0*G23-6.0*WNAKLS-6.0*GH_nph_WVN+6.0*GH_nph_WVK)*s0
+           + (-GH_nph_WVN)*r2
+           - GH_nph_PENALTY/(r1*r1);
+
+    *dgdr2 = G4 + R*t*(log(xvcls) - log(xnals) + log(1.0-3.0*xcass) + log(xcass) - log(xnass) + 1.0)
+           + (6.0*G23+3.0*GEX-15.0*GX-18.0*WNAKLS-4.0*WNAKSS+18.0*GH_nph_WVN-18.0*GH_nph_WVK)*r0/18.0
+           + (-GH_nph_WVN)*r1
+           + (18.0*GH_nph_WVN-18.0*GH_nph_WVK-18.0*WNAKLS+4.0*WNAKSS-9.0*GEX-3.0*GX+6.0*G23-36.0*G24)*s0/24.0;
+}
+double obj_gh_nph(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    double T    = d->T;
+    double Pbar = d->P*1000.0;
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 4; i++){ p[i] = x[i]; }
+    double r0 = p[1], r1 = p[2], r2 = p[3];
+
+    double s0 = GH_nph_solve_s0(r0, r1, r2, T, Pbar);
+
+    double Gex = GH_nph_H(r0,r1,r2,s0,Pbar) - T*GH_nph_S(r0,r1,r2,s0,T) + (Pbar-1.0)*GH_nph_V(r0,r1,r2,s0,Pbar)
+               + GH_nph_PENALTY/r1;
+
+    double dgdr0, dgdr1, dgdr2;
+    GH_nph_dGdr(r0, r1, r2, s0, T, Pbar, &dgdr0, &dgdr1, &dgdr2);
+
+    double dGex[4];
+    dGex[0] = 0.0;    /* na-nepheline, dependent endmember */
+    dGex[1] = dgdr0;
+    dGex[2] = dgdr1;
+    dGex[3] = dgdr2;
+
+    for (int i = 0; i < 4; i++){
+        double mu = Gex;
+        for (int k = 0; k < 4; k++){
+            double delta_ik = (i==k) ? 1.0 : 0.0;
+            mu += (delta_ik - p[k])*dGex[k];
+        }
+        mu_Gex[i] = mu/1000.0;   /* J -> kJ */
+        d->sf[i]  = p[i];
+    }
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 4; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = 0.0;
+    for (int i = 0; i < 4; i++){ d->df_raw += (mu_Gex[i] + gb[i])*p[i]; }
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        for (int i = 0; i < 4; i++){
+            grad[i] = (mu_Gex[i] + gb[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+        }
+    }
+    return d->df;
+}
+
+/**
+    Kalsilite (Sack & Ghiorso 1995): from xMELTS' sources/kalsilite.c.
+    Shares nepheline's NR=3 r-basis (r0=X(k-nepheline "knk"), r1=X(vc-
+    nepheline), r2=X(ca-nepheline)) and its PENALTY/r1 barrier, but has NO
+    order parameter at all (kalsilite.c defines no NS/order() function) -
+    a direct algebraic ideal+regular solution over 4 sites (xk,xvc,xna,
+    xca), all plain functions of r with no embedded solve needed.
+*/
+static void GH_kls_site_fracs(double r0, double r1, double r2,
+    double *xk, double *xvc, double *xna, double *xca){
+    double eps = 2.220446049250313e-16;
+    double v;
+    v = r0;                            *xk  = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = (r1+r2)/4.0;                   *xvc = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = 1.0 - r0 - r1/4.0 - r2/2.0;    *xna = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+    v = r2/4.0;                        *xca = (v<eps)?eps:((v>1.0-eps)?1.0-eps:v);
+}
+double obj_gh_kls(unsigned n, const double *x, double *grad, void *SS_ref_db){
+    SS_ref *d = (SS_ref *) SS_ref_db;
+
+    const double DH1=32145.67, DS1=10.46, DV1=0.0;
+    const double DH2=-5648.4,  DS2=0.0,   DV2=-0.04;
+    const double DH3=14644.0,  DS3=-18.7, DV3=0.0;
+    const double DH4=35184.0,  DS4=-7.17, DV4=0.0;
+    const double WKALS=29288.0, WKVKALS=30334.0, WNVKALS=14646.0, WKCKALS=14644.0;
+    const double S4=-15.8765;
+    const double R = 8.3143;
+    const double PENALTY = 1.4901161193847656e-08; /* sqrt(DBL_EPSILON) */
+
+    double T    = d->T;
+    double Pbar = d->P*1000.0;
+    double *p   = d->p;
+    double *gb  = d->gb_lvl;
+    double *mu_Gex = d->mu_Gex;
+
+    for (int i = 0; i < 4; i++){ p[i] = x[i]; }
+    double r0 = p[1], r1 = p[2], r2 = p[3];
+    double sumr = r0+r1+r2;
+
+    double xk,xvc,xna,xca;
+    GH_kls_site_fracs(r0,r1,r2,&xk,&xvc,&xna,&xca);
+
+    double S = DS1*(1.0-sumr) + DS2*r0 + DS3*r1 + (DS4+S4)*r2
+             - 4.0*R*(xk*log(xk) + (xvc-xca)*log(xvc-xca) + xna*log(xna) + xca*log(xca));
+    double H = DH1*(1.0-sumr) + DH2*r0 + DH3*r1 + DH4*r2
+             + WKALS*r0*(1.0-sumr) + WNVKALS*r1*(1.0-sumr) + WKVKALS*r0*r1 + WKCKALS*r0*r2;
+    double V = DV1*(1.0-sumr) + DV2*r0 + DV3*r1 + DV4*r2;
+    double G4 = -T*S4;
+
+    double Gex = H - T*S + (Pbar-1.0)*V + PENALTY/r1;
+
+    double dgdr0 = - (DH1-T*DS1+(Pbar-1.0)*DV1) + (DH2-T*DS2+(Pbar-1.0)*DV2) + R*T*4.0*(log(xk)-log(xna))
+                 + WKALS*(1.0-2.0*r0-r1-r2) - WNVKALS*r1 + WKVKALS*r1 + WKCKALS*r2;
+    double dgdr1 = - (DH1-T*DS1+(Pbar-1.0)*DV1) + (DH3-T*DS3+(Pbar-1.0)*DV3) + R*T*(log(xvc-xca)-log(xna))
+                 - WKALS*r0 + WNVKALS*(1.0-r0-2.0*r1-r2) + WKVKALS*r0
+                 - PENALTY/(r1*r1);
+    double dgdr2 = - (DH1-T*DS1+(Pbar-1.0)*DV1) + (DH4-T*DS4+(Pbar-1.0)*DV4) + G4
+                 + R*T*(log(xca)-2.0*log(xna)-1.0)
+                 - WKALS*r0 - WNVKALS*r1 + WKCKALS*r0;
+
+    double dGex[4];
+    dGex[0] = 0.0;    /* na-nepheline, dependent endmember */
+    dGex[1] = dgdr0;
+    dGex[2] = dgdr1;
+    dGex[3] = dgdr2;
+
+    for (int i = 0; i < 4; i++){
+        double mu = Gex;
+        for (int k = 0; k < 4; k++){
+            double delta_ik = (i==k) ? 1.0 : 0.0;
+            mu += (delta_ik - p[k])*dGex[k];
+        }
+        mu_Gex[i] = mu/1000.0;   /* J -> kJ */
+        d->sf[i]  = p[i];
+    }
+
+    d->sum_apep = 0.0;
+    for (int i = 0; i < 4; i++){ d->sum_apep += d->ape[i]*p[i]; }
+    d->factor = d->fbc/d->sum_apep;
+
+    d->df_raw = 0.0;
+    for (int i = 0; i < 4; i++){ d->df_raw += (mu_Gex[i] + gb[i])*p[i]; }
+    d->df = d->df_raw * d->factor;
+
+    if (grad){
+        for (int i = 0; i < 4; i++){
+            grad[i] = (mu_Gex[i] + gb[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+        }
+    }
+    return d->df;
+}
+
+/**
     Clinopyroxene / Orthopyroxene (Di-Cen-Hed-CaTs(Al,"alumino-buffonite")-
     CaTs(Fe3+,"buffonite")-Ess-Jd): from xMELTS' sources/clinopyroxene.c
     and orthopyroxene.c (Sack & Ghiorso 1993). NR=6, NS=2 - gh's largest
@@ -1923,6 +2659,15 @@ void GH_SS_objective_init_function(    obj_type            *SS_objective,
         else if (strcmp( gv.SS_list[iss], "fl") == 0 ){
             SS_objective[iss] = obj_gh_fluid;
         }
+        else if (strcmp( gv.SS_list[iss], "rhm") == 0 ){
+            SS_objective[iss] = obj_gh_rhm;
+        }
+        else if (strcmp( gv.SS_list[iss], "nph") == 0 ){
+            SS_objective[iss] = obj_gh_nph;
+        }
+        else if (strcmp( gv.SS_list[iss], "kls") == 0 ){
+            SS_objective[iss] = obj_gh_kls;
+        }
     }
 }
 
@@ -1968,6 +2713,15 @@ void GH_PC_init(                       PC_type             *PC_read,
         else if (strcmp( gv.SS_list[iss], "fl") == 0 ){
             PC_read[iss] = obj_gh_fluid;
         }
+        else if (strcmp( gv.SS_list[iss], "rhm") == 0 ){
+            PC_read[iss] = obj_gh_rhm;
+        }
+        else if (strcmp( gv.SS_list[iss], "nph") == 0 ){
+            PC_read[iss] = obj_gh_nph;
+        }
+        else if (strcmp( gv.SS_list[iss], "kls") == 0 ){
+            PC_read[iss] = obj_gh_kls;
+        }
     }
 }
 
@@ -2003,7 +2757,10 @@ void GH_P2X_init(                      P2X_type            *P2X_read,
             strcmp( gv.SS_list[iss], "spn") == 0 ||
             strcmp( gv.SS_list[iss], "cpx") == 0 ||
             strcmp( gv.SS_list[iss], "opx") == 0 ||
-            strcmp( gv.SS_list[iss], "fl") == 0){
+            strcmp( gv.SS_list[iss], "fl") == 0 ||
+            strcmp( gv.SS_list[iss], "rhm") == 0 ||
+            strcmp( gv.SS_list[iss], "nph") == 0 ||
+            strcmp( gv.SS_list[iss], "kls") == 0){
             P2X_read[iss] = p2x_gh_generic;
         }
     }

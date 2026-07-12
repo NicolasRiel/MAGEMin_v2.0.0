@@ -53,11 +53,11 @@
         int     n_ss;
         char    ox[13][20];
         char    PP[22][20];
-        char    SS[13][20];
+        char    SS[16][20];
 
-        int     verifyPC[13];
-        int     n_SS_PC[13];
-        double  SS_PC_stp[13];
+        int     verifyPC[16];
+        int     n_SS_PC[16];
+        double  SS_PC_stp[16];
 
         double  PC_df_add;
         double  solver_switch_T;

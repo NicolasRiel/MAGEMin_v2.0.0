@@ -1839,11 +1839,11 @@ mutable struct gh_datasets
     n_pp::Cint
     n_ss::Cint
     ox::NTuple{13, NTuple{20, Cchar}}
-    PP::NTuple{18, NTuple{20, Cchar}}
-    SS::NTuple{12, NTuple{20, Cchar}}
-    verifyPC::NTuple{12, Cint}
-    n_SS_PC::NTuple{12, Cint}
-    SS_PC_stp::NTuple{12, Cdouble}
+    PP::NTuple{22, NTuple{20, Cchar}}
+    SS::NTuple{16, NTuple{20, Cchar}}
+    verifyPC::NTuple{16, Cint}
+    n_SS_PC::NTuple{16, Cint}
+    SS_PC_stp::NTuple{16, Cdouble}
     PC_df_add::Cdouble
     solver_switch_T::Cdouble
     min_melt_T::Cdouble
@@ -3041,6 +3041,22 @@ function obj_gh_opx(n, x, grad, SS_ref_db)
     ccall((:obj_gh_opx, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
 end
 
+function obj_gh_fluid(n, x, grad, SS_ref_db)
+    ccall((:obj_gh_fluid, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
+end
+
+function obj_gh_rhm(n, x, grad, SS_ref_db)
+    ccall((:obj_gh_rhm, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
+end
+
+function obj_gh_nph(n, x, grad, SS_ref_db)
+    ccall((:obj_gh_nph, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
+end
+
+function obj_gh_kls(n, x, grad, SS_ref_db)
+    ccall((:obj_gh_kls, libMAGEMin), Cdouble, (Cuint, Ptr{Cdouble}, Ptr{Cdouble}, Ptr{Cvoid}), n, x, grad, SS_ref_db)
+end
+
 function GH_SS_objective_init_function(SS_objective, gv)
     ccall((:GH_SS_objective_init_function, libMAGEMin), Cvoid, (Ptr{obj_type}, global_variable), SS_objective, gv)
 end
@@ -3526,7 +3542,7 @@ function compute_density_volume_modulus(EM_database, z_b, gv, PP_ref_db, SS_ref_
     ccall((:compute_density_volume_modulus, libMAGEMin), global_variable, (Cint, bulk_info, global_variable, Ptr{PP_ref}, Ptr{SS_ref}, Ptr{csd_phase_set}), EM_database, z_b, gv, PP_ref_db, SS_ref_db, cp)
 end
 
-const GH_N_PP = 51
+const GH_N_PP = 64
 
 const NLOPT_MINF_MAX_REACHED = NLOPT_STOPVAL_REACHED
 

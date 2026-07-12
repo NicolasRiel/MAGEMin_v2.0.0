@@ -369,6 +369,98 @@ static const PP_db_gh arr_pp_db_gh[GH_N_PP] = {
         -3025118.0, 133.574, 6.034,
         { 311.29, -2005.1, -5350300.0, 662570000.0, 0.0, 0.0, 0.0, 0.0 },
         { -0.860E-6, 2.149E-12, 23.118E-6, 25.785E-10 } },
+
+    /* --- rhombohedral oxide endmembers (geikielite-hematite-ilmenite-
+       pyrophanite-corundum, Ghiorso & Evans 2008) - from xMELTS'
+       includes/sol_struct_data.h (#ifdef RHYOLITE_ADJUSTMENTS block).
+       Each of these 5 gets an additional intracrystalline-ordering (or,
+       for hematite/corundum, short-range-order) correction added at
+       runtime in GH_gem_function.c (GH_ilm_gei_pyr_ordering_G /
+       GH_rhm_SRO_G), mirroring albite/sanidine's ordering corrections
+       above - NOT baked into H/S here. "crn" is a distinct entry from
+       "cor" above: xMELTS gives this Al2O3 reference state used inside
+       the rhm-oxide solution a +20000 J offset relative to the standalone
+       corundum phase ("cor"), so it must not be merged with it. */
+    /* geikielite - MgTiO3 = MgO + TiO2 */
+    { "gei", { 0,0,0,1.0,0,0,0,1.0,0,0,0,0,0,0,0,0 },
+        -1572560.0, 74.56, 3.086,
+        { 146.20, -4.160E2, -39.998E5, 40.233E7, 0.0, 0.0, 0.0, 0.0 },
+        { -0.584e-6, 1.230e-12, 27.248e-6, 29.968e-10 } },
+    /* hematite (rhm-oxide's own entry) - Fe2O3 = 2 FeO + 1.0 O (2 Fe3+) */
+    { "hem", { 0,0,0,0,2.0,0,0,0,1.0,0,0,0,0,0,0,0 },
+        -825627.0, 87.437, 3.027,
+        { 146.86, 0.0, -55.768E5, 52.563E7, 955.0, 1287.0, -7.403E-2, 27.921E-5 },
+        { -0.479e-6, 0.304e-12, 38.310e-6, 1.650e-10 } },
+    /* ilmenite - FeTiO3 = FeO + TiO2 */
+    { "ilm", { 0,0,0,0,1.0,0,0,1.0,0,0,0,0,0,0,0,0 },
+        -1231947.0, 108.628, 3.170,
+        { 150.00, -4.416E2, -33.237E5, 34.815E7, 0.0, 0.0, 0.0, 0.0 },
+        { -0.584e-6, 1.230e-12, 27.248e-6, 29.968e-10 } },
+    /* pyrophanite - MnTiO3 = MnO + TiO2 */
+    { "pyr", { 0,0,0,0,0,0,0,1.0,0,1.0,0,0,0,0,0,0 },
+        -1350707.0, 104.935, 2.8859,
+        { 150.00, -4.416E2, -33.237E5, 34.815E7, 0.0, 0.0, 0.0, 0.0 },
+        { -0.584e-6, 1.230e-12, 27.248e-6, 29.968e-10 } },
+    /* corundum (rhm-oxide's own entry, +20000 J vs standalone "cor") - Al2O3 */
+    { "crn", { 0,1.0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 },
+        -1675700.0+20000.0, 50.820, 2.558,
+        { 155.02, -8.284E2, -38.614E5, 40.908E7, 0.0, 0.0, 0.0, 0.0 },
+        { -0.385E-6, 0.375E-12, 21.342E-6, 47.180E-10 } },
+
+    /* --- nepheline/kalsilite endmembers (Sack & Ghiorso 1995) - from
+       xMELTS' includes/sol_struct_data.h. Both "nph" (nepheline) and "kls"
+       (kalsilite) solution phases share na-nepheline/vc-nepheline/
+       ca-nepheline verbatim, but each has its OWN distinct k-nepheline row
+       ("kne" vs "knk") - real xMELTS bakes a -3572.76 J offset into
+       k-nepheline's H only when hosted in the nepheline structure, exactly
+       cancelled at pure k-nepheline composition by nepheline.c's own
+       (unused-elsewhere) DH2 constant; see GH_gem_function.c's
+       GH_nph_kne_offset note. vc-nepheline/ca-nepheline's V=0/EOS=0 here
+       is deliberate (NOT "no pressure correction"): their real standard
+       states are a "phantom" 2:1 reaction with high-albite/high-anorthite
+       (V=0, Berman H/S/Cp only, same as this table's "ab"/"an" Cp with the
+       vc-ne/ca-ne row's own H/S numbers) and na-nepheline evaluated with a
+       DIFFERENT volume (a self-consistent thermal Vinet EOS, not Berman) -
+       added as an on-top correction in GH_gem_function.c's GH_G_EM_function
+       (GH_vcneph_G/GH_caneph_G), mirroring albite/sanidine's ordering-
+       correction dispatch pattern. */
+    /* na-nepheline - Na4Al4Si4O16 = 2 Na2O + 2 Al2O3 + 4 SiO2 */
+    { "nane", { 4.0,2.0,0,0,0,0,2.0,0,0,0,0,0,0,0,0,0 },
+        -2093004.0*4.0, 124.641*4.0, 5.4131*4.0,
+        { 205.24*4.0, -7.599E2*4.0, -108.383E5*4.0, 208.182E7*4.0, 467.0, 241.0*4.0, -50.249E-2*2.0, 165.95E-5*2.0 },
+        { -2.0500e-6, 5.2000e-12, 31.802e-6, 213.0e-10 } },
+    /* k-nepheline (nepheline-hosted) - K4Al4Si4O16 = 2 K2O + 2 Al2O3 + 4 SiO2.
+       H ref includes the real xMELTS -3572.76 J nepheline-only offset (on
+       top of the shared -(DH2) term, DH2=-1.35*1000.0*4.184=-5648.4 J). */
+    { "kne", { 4.0,2.0,0,0,0,2.0,0,0,0,0,0,0,0,0,0,0 },
+        -2109563.55*4.0-(-5648.4)-3572.76, 133.9653*4.0-(0.0), 6.043478*4.0-(-0.00001*1000.0*4.184),
+        { 186.0*4.0, 0.0, -131.067E5*4.0, 213.893E7*4.0, 800.15, 1154.0*4.0, -7.096454E-2*2.0, 21.682E-5*2.0 },
+        { -2.0500e-6, 5.2000e-12, 31.802e-6, 213.0e-10 } },
+    /* k-nepheline (kalsilite-hosted) - same as "kne" but WITHOUT the
+       -3572.76 nepheline-only offset (real xMELTS: two distinct
+       registrations of the "same" endmember, see header comment above). */
+    { "knk", { 4.0,2.0,0,0,0,2.0,0,0,0,0,0,0,0,0,0,0 },
+        -2109563.55*4.0-(-5648.4), 133.9653*4.0-(0.0), 6.043478*4.0-(-0.00001*1000.0*4.184),
+        { 186.0*4.0, 0.0, -131.067E5*4.0, 213.893E7*4.0, 800.15, 1154.0*4.0, -7.096454E-2*2.0, 21.682E-5*2.0 },
+        { -2.0500e-6, 5.2000e-12, 31.802e-6, 213.0e-10 } },
+    /* vc-nepheline - Na3Al3Si5O16 = 1.5 Na2O + 1.5 Al2O3 + 5 SiO2. H/S/Cp
+       here are real xMELTS' own table values (= high-albite's Berman 1988
+       calibration, "ab"'s H/S/Cp above); V=0/EOS=0 deliberately - the
+       Vinet-EOS phantom-reaction correction is added on top by name in
+       GH_gem_function.c, not folded into this table row. */
+    { "vcne", { 5.0,1.5,0,0,0,0,1.5,0,0,0,0,0,0,0,0,0 },
+        -3921618.0, 224.412, 0.0,
+        { 393.64, -24.155E2, -78.928E5, 107.064E7, 0.0, 0.0, 0.0, 0.0 },
+        { 0.0, 0.0, 0.0, 0.0 } },
+    /* ca-nepheline - CaNa2Al4Si4O16 = 1 CaO + 1 Na2O + 2 Al2O3 + 4 SiO2.
+       H/S/Cp here are high-anorthite's Berman 1988 calibration ("an"'s H/S/
+       Cp above); V=0/EOS=0 deliberately, same phantom-reaction convention
+       as "vcne" (GH_caneph_G in GH_gem_function.c adds the +23096 J / zero-
+       point-entropy / Vinet-EOS na-nepheline correction on top). */
+    { "cane", { 4.0,2.0,1.0,0,0,0,1.0,0,0,0,0,0,0,0,0,0 },
+        -4228730.0+3.7*4184.0, 200.186+3.7*4184.0/2200.0, 0.0,
+        { 439.37, -37.341E2, 0.0, -31.702E7, 0.0, 0.0, 0.0, 0.0 },
+        { 0.0, 0.0, 0.0, 0.0 } },
 };
 
 /**

@@ -32,6 +32,7 @@
 
 #include <math.h>
 #include <string.h>
+#include <float.h>
 
 #include "../MAGEMin.h"
 #include "GH_endmembers.h"
@@ -250,6 +251,142 @@ static double GH_albite_ordering_G(double T, double P){
     return H - T*S + (P-1.0)*V;
 }
 
+/**
+    Rhombohedral-oxide (geikielite-hematite-ilmenite-pyrophanite-corundum,
+    Ghiorso & Evans 2008) intracrystalline-ordering correction for the
+    ilmenite/geikielite/pyrophanite standard states, ported from xMELTS'
+    sources/rhomsghiorso.c (pureOrder + IL_G/GK_G/PY_G macros): a single
+    Landau-type order parameter s in [0,1) on that endmember's own A/B
+    cation sites, bounded-Newton-solved (same iteration pureOrder itself
+    performs, start s=0.98). dh/wh/dv/wv are the (Hordering, Wordering,
+    dVordering, WVordering) constants for ilmenite/geikielite/pyrophanite -
+    numerically identical across all three in xMELTS' own calibration, but
+    kept as distinct call-site arguments to stay faithful to the 3
+    independently-named macro sets (IL_, GK_, PY_) in the source.
+*/
+static double GH_rhm_pure_order_G(double T, double P, double dh, double wh, double dv, double wv){
+    double R = 8.3143;
+    double s = 0.98;
+    for (int iter = 0; iter < 1000; iter++){
+        double dgds   = R*T*(log(1.0+s) - log(1.0-s))
+                      - 2.0*(dh+(P-1.0)*dv)*s + (wh+(P-1.0)*wv)*(2.0*s - 4.0*s*s*s);
+        double d2gds2 = R*T*(1.0/(1.0+s) + 1.0/(1.0-s))
+                      - 2.0*(dh+(P-1.0)*dv) + (wh+(P-1.0)*wv)*(2.0 - 12.0*s*s);
+        double sNew   = s - dgds/d2gds2;
+        sNew = (sNew > 1.0 - 10.0*DBL_EPSILON) ? 1.0 - 10.0*DBL_EPSILON : sNew;
+        sNew = (sNew < 0.0) ? 0.0 : sNew;
+        int converged = (fabs(sNew - s) <= 10.0*DBL_EPSILON);
+        s = sNew;
+        if (converged) break;
+    }
+    double S = -R*((1.0+s)*log(1.0+s) + (1.0-s)*log(1.0-s) - 2.0*log(2.0));
+    double H = (dh+(P-1.0)*dv)*(1.0 - s*s) + (wh+(P-1.0)*wv)*s*s*(1.0 - s*s);
+    return H - T*S;
+}
+
+/**
+    Rhombohedral-oxide short-range-order correction for the hematite/
+    corundum standard states used inside that solution (xMELTS' HM_G/CR_G
+    macros): fSRO(T,order) is a natural cubic spline through 8 calibrated
+    points (SRO600..SRO1300), but every one of those calibration values is
+    the identical constant 0.0730205 - the spline is exactly flat, so
+    fSRO(T,0)==0.0730205 and all its T-derivatives are 0 for any T,
+    collapsing the general spline machinery to this closed form (P-
+    independent, matching DHM_GDP=DCR_GDP=0 in the source).
+*/
+static double GH_rhm_SRO_G(double T){
+    const double SROconst = 0.0730205;
+    double R = 8.3143;
+    return -T*(SROconst*2.0*R*log(2.0));
+}
+
+/**
+    Self-consistent thermal Vinet finite-strain volume EOS, ported from
+    xMELTS' sources/gibbs.c (the EOS_VINET branch of gibbs()) - a genuinely
+    different volume-integration engine from the Berman polynomial EOS used
+    everywhere else in gh, needed only for the na-nepheline term inside the
+    vc-nepheline/ca-nepheline "phantom reaction" standard states (see
+    GH_vcneph_G/GH_caneph_G below). Only the Gibbs energy contribution is
+    ported (matching gh's general policy of getting volume/moduli from
+    finite differences on G, not analytic derivatives) - the h/s/cp/v/dvdt/
+    dvdp/etc terms the source also computes are not needed here.
+*/
+static double GH_vinet_EOS_dG(double T, double P, double V0, double alpha, double K, double Kp){
+    double Tr = GH_Tr, Pr = GH_Pr;
+    double eta = 3.0*(Kp-1.0)/2.0;
+    double x = 1.0, x0 = 1.0;
+    double fn, dfn;
+    int iter;
+
+    iter = 0;
+    do {
+        fn  = x*x*(P/10000.0) - 3.0*K*(1.0-x)*exp(eta*(1.0-x)) - x*x*alpha*K*(T-Tr);
+        dfn = 2.0*x*(P/10000.0) + 3.0*K*(1.0+eta*(1.0-x))*exp(eta*(1.0-x)) - 2.0*alpha*K*(T-Tr);
+        x = x - fn/dfn;
+        iter++;
+    } while ((iter < 500) && (fn*fn > DBL_EPSILON));
+
+    iter = 0;
+    do {
+        fn  = x0*x0*(Pr/10000.0) - 3.0*K*(1.0-x0)*exp(eta*(1.0-x0)) - x0*x0*alpha*K*(T-Tr);
+        dfn = 2.0*x0*(Pr/10000.0) + 3.0*K*(1.0+eta*(1.0-x0))*exp(eta*(1.0-x0)) - 2.0*alpha*K*(T-Tr);
+        x0 = x0 - fn/dfn;
+        iter++;
+    } while ((iter < 500) && (fn*fn > DBL_EPSILON));
+
+    double a  =  (9.0*V0*K/(eta*eta))*(1.0 - eta*(1.0-x))*exp(eta*(1.0-x));
+           a +=  V0*(T-Tr)*K*alpha*(x*x*x - 1.0) - 9.0*V0*K/(eta*eta);
+           a -=  (9.0*V0*K/(eta*eta))*(1.0 - eta*(1.0-x0))*exp(eta*(1.0-x0));
+           a -=  V0*(T-Tr)*K*alpha*(x0*x0*x0 - 1.0) - 9.0*V0*K/(eta*eta);
+
+    return -a*10000.0 + P*V0*x*x*x - Pr*V0*x0*x0*x0;
+}
+
+/**
+    Na-nepheline evaluated with a phase-specific override volume V0 and the
+    Vinet EOS above instead of its own standalone Berman EOS (ported from
+    xMELTS' gibbs.c "vc-nepheline"/"ca-nepheline" branches' inner
+    gibbs(t,p,"na-nepheline",&tempRef,...) call - same H0/S0/Cp as
+    na-nepheline's own standalone entry ("nane" in GH_PP_endmembers.c),
+    only V0 and the EOS differ).
+*/
+static double GH_naneph_vinet_G(double T, double P, double V0){
+    double H_T, S_T;
+    const double cp[8] = { 205.24*4.0, -7.599E2*4.0, -108.383E5*4.0, 208.182E7*4.0,
+                            467.0, 241.0*4.0, -50.249E-2*2.0, 165.95E-5*2.0 };
+    GH_berman_HS(T, -2093004.0*4.0, 124.641*4.0, cp, &H_T, &S_T);
+    return (H_T - T*S_T) + GH_vinet_EOS_dG(T, P, V0, 31.802e-6, 48.7805, 1.4747);
+}
+
+/**
+    Vc-nepheline (Na3Al3Si5O16) real standard state, ported from xMELTS'
+    gibbs.c: a "phantom" 2:1 reaction [2*high-albite + na-nepheline]/2,
+    where "high-albite" is the PLAIN Berman H/S/Cp evaluation of "vcne"'s
+    own table row (GH_PP_endmembers.c - real xMELTS bakes high-albite's
+    calibration directly into that row, with V=0/EOS=0 so the ordinary
+    generic Berman dispatch already gives exactly the "high-albite, no
+    pressure term" piece) plus 0.5x na-nepheline's own Vinet-EOS-corrected
+    term computed here. Added on top of the generic gbase_J in
+    GH_G_EM_function, mirroring albite/sanidine's ordering-correction
+    dispatch pattern (not a replacement, an addition).
+*/
+static double GH_vcneph_G(double T, double P){
+    return 0.5*GH_naneph_vinet_G(T, P, 5.434181*8.0);
+}
+
+/**
+    Ca-nepheline (CaNa2Al4Si4O16) real standard state, ported from xMELTS'
+    gibbs.c: same "phantom" 2:1 reaction construction as vc-nepheline
+    (with "high-anorthite" = "cane"'s own plain-Berman table row, V=0/
+    EOS=0), plus a real +23096 J enthalpy correction and a real +15.8765
+    J/K zero-point entropy correction (both applied to the high-anorthite
+    side before averaging, per the source) plus 0.5x na-nepheline's own
+    Vinet-EOS-corrected term.
+*/
+static double GH_caneph_G(double T, double P){
+    return 23096.0 - T*15.8765 + 0.5*GH_naneph_vinet_G(T, P, 5.433181*8.0);
+}
+
 static PP_ref GH_pack_PP_ref(char *name, int len_ox, const double *Comp,
                               double *bulk_rock, double *apo, double gbase_J){
     PP_ref PP_ref_db;
@@ -316,6 +453,27 @@ PP_ref GH_G_EM_function(   int          EM_database,
         }
         else if (strcmp(name, "san") == 0){
             gbase_J += GH_sanidine_ordering_G(T, P);
+        }
+        /* rhm-oxide (geikielite-hematite-ilmenite-pyrophanite-corundum,
+           Ghiorso & Evans 2008) intracrystalline-ordering / short-range-
+           order corrections - see GH_rhm_pure_order_G/GH_rhm_SRO_G above.
+           dh/wh/dv/wv are numerically identical across ilm/gei/pyr in
+           xMELTS' own calibration (dhilm=dhgei=dhpyr=17477.0 J,
+           whilm=whgei=whpyr=3189.0 J, dvilm=dvgei=dvpyr=0.010758 J/bar,
+           wvilm=wvgei=wvpyr=0.035089 J/bar). */
+        else if (strcmp(name, "ilm") == 0 || strcmp(name, "gei") == 0 || strcmp(name, "pyr") == 0){
+            gbase_J += GH_rhm_pure_order_G(T, P, 17477.0, 3189.0, 0.010758, 0.035089);
+        }
+        else if (strcmp(name, "hem") == 0 || strcmp(name, "crn") == 0){
+            gbase_J += GH_rhm_SRO_G(T);
+        }
+        /* nepheline/kalsilite "phantom reaction" standard states - see
+           GH_vcneph_G/GH_caneph_G above */
+        else if (strcmp(name, "vcne") == 0){
+            gbase_J += GH_vcneph_G(T, P);
+        }
+        else if (strcmp(name, "cane") == 0){
+            gbase_J += GH_caneph_G(T, P);
         }
         return GH_pack_PP_ref(name, len_ox, PP_return.Comp, bulk_rock, apo, gbase_J);
     }
