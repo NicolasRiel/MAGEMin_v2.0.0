@@ -36,6 +36,6 @@
         double Cpl;              /** liquid heat capacity, constant (J/K)                            */
     } EM_db_gh;
 
-    EM_db_gh Access_GH_EM_DB(int id);
+    EM_db_gh Access_GH_EM_DB(int EM_database, int id);
 
 #endif

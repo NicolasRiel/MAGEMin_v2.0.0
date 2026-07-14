@@ -1449,7 +1449,8 @@ void run_simplex_levelling(				bulk_info 	 		 z_b,
 			GH_pc_init_function(				SS_pc_xeos,
 												iss,
 												gv.SS_list[iss],
-												SS_ref_db[iss].z_em		);
+												SS_ref_db[iss].z_em,
+												gv.EM_database				);
 		}
 	}
 

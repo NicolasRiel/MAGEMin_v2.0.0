@@ -38,6 +38,7 @@ const GH_N_EM = Dict(
     "rhm" => 5,
     "nph" => 4,
     "kls" => 4,
+    "liq_pmelts_dataset" => 12,
 )
  
 # Function to generate a simplex in n dimensions with given step size
@@ -124,3 +125,5 @@ if abspath(PROGRAM_FILE) == @__FILE__
     step_size = parse(Float64, ARGS[2])
     print(generate_gh_pseudocompounds(ph_name, step_size))
 end
+
+#write("gh_ol_pc_0.025.txt", out)

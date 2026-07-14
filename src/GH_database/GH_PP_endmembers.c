@@ -345,7 +345,7 @@ static const PP_db_gh arr_pp_db_gh[GH_N_PP] = {
        xMELTS' own "Guess" offset (H31=-8565.18 J, S31=0) - no
        calorimetric data for this rare component (see header comment). */
     { "cats", { 1.0,0.5,1.0,0.5,0,0,0,0.5,0,0,0,0,0,0,0,0 },
-        -3283848.18, 143.745, 6.356,
+        -3283830.18, 143.745, 6.356,
         { 297.499, -1355.96, -6702190.0, 759082000.0, 0.0, 0.0, 0.0, 0.0 },
         { -0.870E-6, 2.171E-12, 22.250E-6, 52.863E-10 } },
     /* buffonite (Ca-Ti-Fe3+ Tschermak) - CaTi0.5Mg0.5FeSiO6 = SiO2 +
@@ -407,23 +407,6 @@ static const PP_db_gh arr_pp_db_gh[GH_N_PP] = {
         { 155.02, -8.284E2, -38.614E5, 40.908E7, 0.0, 0.0, 0.0, 0.0 },
         { -0.385E-6, 0.375E-12, 21.342E-6, 47.180E-10 } },
 
-    /* --- nepheline/kalsilite endmembers (Sack & Ghiorso 1995) - from
-       xMELTS' includes/sol_struct_data.h. Both "nph" (nepheline) and "kls"
-       (kalsilite) solution phases share na-nepheline/vc-nepheline/
-       ca-nepheline verbatim, but each has its OWN distinct k-nepheline row
-       ("kne" vs "knk") - real xMELTS bakes a -3572.76 J offset into
-       k-nepheline's H only when hosted in the nepheline structure, exactly
-       cancelled at pure k-nepheline composition by nepheline.c's own
-       (unused-elsewhere) DH2 constant; see GH_gem_function.c's
-       GH_nph_kne_offset note. vc-nepheline/ca-nepheline's V=0/EOS=0 here
-       is deliberate (NOT "no pressure correction"): their real standard
-       states are a "phantom" 2:1 reaction with high-albite/high-anorthite
-       (V=0, Berman H/S/Cp only, same as this table's "ab"/"an" Cp with the
-       vc-ne/ca-ne row's own H/S numbers) and na-nepheline evaluated with a
-       DIFFERENT volume (a self-consistent thermal Vinet EOS, not Berman) -
-       added as an on-top correction in GH_gem_function.c's GH_G_EM_function
-       (GH_vcneph_G/GH_caneph_G), mirroring albite/sanidine's ordering-
-       correction dispatch pattern. */
     /* na-nepheline - Na4Al4Si4O16 = 2 Na2O + 2 Al2O3 + 4 SiO2 */
     { "nane", { 4.0,2.0,0,0,0,0,2.0,0,0,0,0,0,0,0,0,0 },
         -2093004.0*4.0, 124.641*4.0, 5.4131*4.0,
@@ -471,7 +454,7 @@ static const PP_db_gh arr_pp_db_gh[GH_N_PP] = {
 **/
 static const PP_db_gh_beta arr_pp_db_gh_beta[3] = {
     /* beta-quartz */
-    { "q",    -908627.0, 44.207, 2.370, { -1.238E-6,  10.137E-12, 0.0,     0.0 }, 0.0237 },
+    { "q",    -908627.0, 44.207, 2.370, { -1.238E-6,  7.087E-13, 0.0,     0.0 }, 0.0237 },
     /* beta-cristobalite */
     { "crst", -906377.0, 46.029, 2.730, { -1.100E-6,   5.535E-12, 3.189E-6, 0.0 }, 0.0480 },
     /* beta-tridymite (no pressure shift on Tt: dTdP=0) */

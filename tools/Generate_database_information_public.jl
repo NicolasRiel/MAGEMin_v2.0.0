@@ -16,10 +16,12 @@ function get_database_infos()
                         "Stixrude & Lithgow-Bertelloni (2011)",
                         "Stixrude & Lithgow-Bertelloni (2021)",
                         "Stixrude & Lithgow-Bertelloni (2024)",
-                        "xMELTS Ghiorso et al., 201x"]
+                        "xMELTS dev",
+                        "pMELTS 5.6.1",
+                        "rMELTS 1.2.0"]
 
-    database_list   =   ["mp","mb","mbe","ig","igad","igd","um","ume","mtl","mpe","sb11","sb21","sb24","gh"]
-    dataset_default =   [62,62,62,636,636,634,633,633,633,62,-1,-1,-1]
+    database_list   =   ["mp","mb","mbe","ig","igad","igd","um","ume","mtl","mpe","sb11","sb21","sb24","xMELTS","pMELTS","rMELTS"]
+    dataset_default =   [62,62,62,636,636,634,633,633,633,62,-1,-1,-1,1,1,1]
     dataset_opt     =   (62, 633, 634, 635, 636),
                         (62, 633, 634, 635, 636),
                         (62, 633, 634, 635, 636),
@@ -33,7 +35,10 @@ function get_database_infos()
                         (62, 633, 634, 635, 636),
                         (-1, -1, -1, -1, -1),
                         (-1, -1, -1, -1, -1),
-                        (-1, -1, -1, -1, -1)
+                        (-1, -1, -1, -1, -1),
+                        (1,   1,  1,  1,  1),
+                        (1,   1,  1,  1,  1),
+                        (1,   1,  1,  1,  1)
 
     db_inf          = Array{db_infos, 1}(undef, length(database_list))
 

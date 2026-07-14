@@ -37,10 +37,10 @@ oxide_data oxide_info_gh = {
 gh_dataset gh_db = {
 	1,							/* ds_version (single Stage-A dataset)				*/
 	13,							/* number of oxides									*/
-	22,							/* number of pure phases							*/
+	26,							/* number of pure phases							*/
 	16,							/* number of solution phases						*/
 	{"SiO2"	,"Al2O3","CaO"	,"MgO"	,"FeO"	,"K2O"	,"Na2O"	,"TiO2"	,"O"	,"MnO"	,"Cr2O3","H2O"	,"CO2"				            },
-	{"q"	,"crst"	,"trd"	,"cor"	,"sill"	,"and"	,"ky"	,"ru"	,"sph"	,"perov","cc"	,"arag"	,"mgs"	,"sid"	,
+	{"aTiO2","aAl2O3","qfm" ,"hm"   ,"q"	,"crst"	,"trd"	,"cor"	,"sill"	,"and"	,"ky"	,"ru"	,"sph"	,"perov","cc"	,"arag"	,"mgs"	,"sid"	,
 	 "dol"	,"spu"	,"til"	,"mu"	,"aeg"	,"aen"	,"O2"	,"H2O"															        },
 	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"	,"hb"	,"lc"	,"mel"	,"cum"	,"spn"	,"cpx"	,"opx"	,"fl"	,"rhm"	,"nph"	,"kls"	},
 
@@ -62,11 +62,39 @@ gh_dataset gh_db = {
 	1e-6						/** objective function tolerance 				 									*/
 };
 
+/** pMELTS (gv.EM_database==2): pMELTS minus CO2 entirely  */
+gh_dataset gh_db_pmelts_dataset = {
+	1,							/* ds_version (single Stage-A dataset)				*/
+	12,							/* number of oxides									*/
+	19,							/* number of pure phases							*/
+	15,							/* number of solution phases						*/
+	{"SiO2"	,"Al2O3","CaO"	,"MgO"	,"FeO"	,"K2O"	,"Na2O"	,"TiO2"	,"O"	,"MnO"	,"Cr2O3","H2O"						            },
+	{"aTiO2","aAl2O3","qfm" ,"hm"   ,"q"	,"crst"	,"trd"	,"cor"	,"sill"	,"and"	,"ky"	,"ru"	,"sph"	,"perov","mu"	,"aeg"	,"aen"	,"O2"	,"H2O"	},
+	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"	,"hb"	,"lc"	,"mel"	,"cum"	,"spn"	,"cpx"	,"opx"	,"rhm"	,"nph"	,"kls"	},
+
+	{1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		}, // allow solvus?
+	{4368	,41		,231	,41		,231	,231	,231	,165	,41		,495	,3003	,3003	,1001	,165	,165	}, // # of pseudocompound
+	{0.2	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.10	,0.10	,0.10	,0.10	,0.125	,0.125	}, // discretization step
+
+	6.0, 						/** max dG under which a phase is considered to be reintroduced  					*/
+	673.15,						/** max temperature above which PGE solver is active 								*/
+	773.15,						/** minimum temperature above which melt is considered 								*/
+
+	4,							/** number of inner PGE iterations, this has to be made mass or dG dependent 		*/
+	0.025,						/** maximum mol% phase change during one PGE iteration in wt% 						*/
+	2.5,						/** maximum delta_G of reference change during PGE 									*/
+	1.0,						/** maximum update factor during PGE under-relax < 0.0, over-relax > 0.0 	 		*/
+
+	1e-1,						/** merge instances of solution phase if norm < val 								*/
+	1e-4,						/** fraction of solution phase when re-introduced 									*/
+	1e-6						/** objective function tolerance 				 									*/
+};
+
 global_variable global_variable_GH_init(   global_variable      gv,
                                             bulk_info           *z_b    ){
     int i, j;
 
-    gh_dataset db       = gh_db;
+    gh_dataset db       = (gv.EM_database == 2) ? gh_db_pmelts_dataset : gh_db;
     gv.EM_dataset       = db.ds_version;
     gv.len_pp           = db.n_pp;
     gv.len_ss           = db.n_ss;
@@ -245,7 +273,7 @@ global_variable global_variable_GH_init(   global_variable      gv,
     z_b->nzEl_array     = malloc (gv.len_ox * sizeof (int) );
     z_b->zEl_array      = malloc (gv.len_ox * sizeof (int) );
 
-    gv.n_em_db = 13;
+    gv.n_em_db = (gv.EM_database == 2) ? 12 : 13;
 
     return gv;
 }
@@ -316,6 +344,73 @@ global_variable get_bulk_gh( global_variable gv) {
         gv.bulk_rock[10] = 0.00;   /** Cr2O3 */
         gv.bulk_rock[11] = 5.18;    /** H2O   */
         gv.bulk_rock[12] = 0.0;    /** CO2   */
+    }
+    else{
+        printf("Unknown test %i for 'gh' research group - please specify a different test! \n", gv.test);
+        exit(EXIT_FAILURE);
+    }
+    return gv;
+}
+
+/* pMELTS (gv.EM_database==2) test bulk-rock compositions: identical to
+   get_bulk_gh's above, minus the CO2 entry (index 12) - pMELTS drops CO2
+   entirely as an oxide axis (see gh_db_pmelts_dataset), so this dataset's
+   gv.bulk_rock only has 12 slots. */
+global_variable get_bulk_pmelts_dataset( global_variable gv) {
+    if (gv.test != -1){
+        if (gv.verbose == 1){
+            printf("\n");
+            printf("   - Minimization using in-built bulk-rock  : test %2d\n",gv.test);
+        }
+    }
+    else{
+        gv.test = 0;
+    }
+
+    if (gv.test == 0){ /* rough basalt */
+        /* SiO2  Al2O3  CaO   MgO   FeO  K2O  Na2O  TiO2  O    MnO   Cr2O3 H2O */
+        gv.bulk_rock[0]  = 49.90;   /** SiO2  */
+        gv.bulk_rock[1]  = 8.82;    /** Al2O3 */
+        gv.bulk_rock[2]  = 10.69;   /** CaO   */
+        gv.bulk_rock[3]  = 11.90;   /** MgO   */
+        gv.bulk_rock[4]  = 7.51;    /** FeO   */
+        gv.bulk_rock[5]  = 0.32;    /** K2O   */
+        gv.bulk_rock[6]  = 2.42;    /** Na2O  */
+        gv.bulk_rock[7]  = 1.13;    /** TiO2  */
+        gv.bulk_rock[8]  = 0.37;    /** O     */
+        gv.bulk_rock[9]  = 0.13;    /** MnO   */
+        gv.bulk_rock[10] = 0.02;    /** Cr2O3 */
+        gv.bulk_rock[11] = 6.66;    /** H2O   */
+    }
+    else if (gv.test == 1){ /* rough rhyolite */
+        /* SiO2  Al2O3  CaO   MgO   FeO  K2O  Na2O  TiO2  O    MnO   Cr2O3 H2O */
+        gv.bulk_rock[0]  = 76.58;   /** SiO2  */
+        gv.bulk_rock[1]  = 7.93;    /** Al2O3 */
+        gv.bulk_rock[2]  = 1.33;    /** CaO   */
+        gv.bulk_rock[3]  = 0.46;    /** MgO   */
+        gv.bulk_rock[4]  = 1.30;    /** FeO   */
+        gv.bulk_rock[5]  = 2.97;    /** K2O   */
+        gv.bulk_rock[6]  = 3.51;    /** Na2O  */
+        gv.bulk_rock[7]  = 0.16;    /** TiO2  */
+        gv.bulk_rock[8]  = 0.39;    /** O     */
+        gv.bulk_rock[9]  = 0.04;    /** MnO   */
+        gv.bulk_rock[10] = 0.004;   /** Cr2O3 */
+        gv.bulk_rock[11] = 5.18;    /** H2O   */
+    }
+    else if (gv.test == 2){ /* rough rhyolite */
+        /* SiO2  Al2O3  CaO   MgO   FeO  K2O  Na2O  TiO2  O    MnO   Cr2O3 H2O */
+        gv.bulk_rock[0]  = 76.58;   /** SiO2  */
+        gv.bulk_rock[1]  = 7.93;    /** Al2O3 */
+        gv.bulk_rock[2]  = 1.33;    /** CaO   */
+        gv.bulk_rock[3]  = 0.46;    /** MgO   */
+        gv.bulk_rock[4]  = 1.30;    /** FeO   */
+        gv.bulk_rock[5]  = 2.97;    /** K2O   */
+        gv.bulk_rock[6]  = 3.51;    /** Na2O  */
+        gv.bulk_rock[7]  = 0.16;    /** TiO2  */
+        gv.bulk_rock[8]  = 0.0;     /** O     */
+        gv.bulk_rock[9]  = 0.0;     /** MnO   */
+        gv.bulk_rock[10] = 0.00;    /** Cr2O3 */
+        gv.bulk_rock[11] = 5.18;    /** H2O   */
     }
     else{
         printf("Unknown test %i for 'gh' research group - please specify a different test! \n", gv.test);

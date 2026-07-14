@@ -47,6 +47,34 @@ T           =   600.0
 out         =   point_wise_minimization(P,T, data);
 Finalize_MAGEMin(data)
 
+
+using MAGEMin_C
+data        =   Initialize_MAGEMin("xMELTS", verbose=-1);
+test        =   0 #rough basalt
+data        =   use_predefined_bulk_rock(data, test);
+P           =   8.0
+T           =   800.0
+out         =   point_wise_minimization(P,T, data);
+
+using MAGEMin_C
+data        =   Initialize_MAGEMin("pMELTS", verbose=-1);
+test        =   0 #rough basalt
+data        =   use_predefined_bulk_rock(data, test);
+P           =   8.0
+T           =   800.0
+out         =   point_wise_minimization(P,T, data);
+
+
+using MAGEMin_C
+data        =   Initialize_MAGEMin("pMELTS", verbose=-1, buffer="qfm");
+test        =   0 #rough basalt
+data        =   use_predefined_bulk_rock(data, test);
+P           =   8.0
+T           =   800.0
+out         =   point_wise_minimization(P,T, data);
+
+
+
 =#
 
 data        =   Initialize_MAGEMin("sb21", verbose=-1);

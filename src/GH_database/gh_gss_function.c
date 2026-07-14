@@ -14,6 +14,7 @@
 #include "../MAGEMin.h"
 #include "../initialize.h"
 #include "gh_gss_function.h"
+#include "GH_gem_function.h"
 
 /**
     Boil-out test for a solution-phase endmember: true if any oxide it
@@ -49,44 +50,299 @@ static int GH_boiled_out(int len_ox, const double *Comp, double *bulk_rock){
     Extracted from xMELTS-master/includes/param_struct_data.h
     (originalModelParameters[], default/non-new-water-model branch).
 */
-SS_ref G_SS_gh_liq_function(SS_ref SS_ref_db, char* research_group, int EM_dataset, int len_ox, bulk_info z_b, double eps){
+SS_ref G_SS_gh_liq_function(SS_ref SS_ref_db, char* research_group, int EM_dataset, int EM_database, int len_ox, bulk_info z_b, double eps){
     strcpy(SS_ref_db.fName,"liq_MELTS");
     int i;
     int n_em = SS_ref_db.n_em;
 
+    /* pMELTS uses real pMELTS' own rescaled-formula-unit names for 4 of
+       its 12 endmembers (Si4O8/Al4O6/Ca2Si2O6/NaSi0.5O1.5, matching
+       arr_em_db_gh_liq_pMELTS in GH_endmembers.c exactly) - not cosmetic,
+       a mole fraction of these IS a mole fraction of the larger formula
+       unit, a real physical difference from xMELTS/rMELTS' plain-oxide
+       endmembers of the same name. See [[gh-multicalibration-xmelts-rmelts-pmelts]]. */
     char *EM_tmp[] = {"SiO2","TiO2","Al2O3","Fe2O3","MgCr2O4","Fe2SiO4","MnSi0.5O2","Mg2SiO4",
                        "CaSiO3","Na2SiO3","KAlSiO4","CO2","H2O"};
+    /* pMELTS (EM_database==2): no CO2 entry at all - real pMELTS has no
+       CO2 standard-state treatment (see GH_endmembers.c's table header
+       comment) - H2O sits at index 11, not 12. */
+    char *EM_tmp_pMELTS[] = {"Si4O8","TiO2","Al4O6","Fe2O3","MgCr2O4","Fe2SiO4","MnSi0.5O2","Mg2SiO4",
+                       "Ca2Si2O6","NaSi0.5O1.5","KAlSiO4","H2O"};
     for (i = 0; i < n_em; i++){
-        strcpy(SS_ref_db.EM_list[i], EM_tmp[i]);
+        strcpy(SS_ref_db.EM_list[i], (EM_database == 2) ? EM_tmp_pMELTS[i] : EM_tmp[i]);
     };
 
-    SS_ref_db.W[0]  =  26266.7;   SS_ref_db.W[1]  = -39120.0;   SS_ref_db.W[2]  =   8110.3;
-    SS_ref_db.W[3]  =  27886.3;   SS_ref_db.W[4]  =  23660.9;   SS_ref_db.W[5]  =  18393.9;
-    SS_ref_db.W[6]  =   3421.0;   SS_ref_db.W[7]  =   -863.7;   SS_ref_db.W[8]  = -99039.0;
-    SS_ref_db.W[9]  = -33921.7;   SS_ref_db.W[10] =      0.0;   SS_ref_db.W[11] =  30967.3;
-    SS_ref_db.W[12] = -29449.8;   SS_ref_db.W[13] = -84756.9;   SS_ref_db.W[14] = -72303.4;
-    SS_ref_db.W[15] =   5209.1;   SS_ref_db.W[16] = -16123.5;   SS_ref_db.W[17] =  -4178.3;
-    SS_ref_db.W[18] = -35372.5;   SS_ref_db.W[19] = -15415.6;   SS_ref_db.W[20] = -48094.6;
-    SS_ref_db.W[21] = -19265.7;   SS_ref_db.W[22] =  81879.1;   SS_ref_db.W[23] = -17089.4;
-    SS_ref_db.W[24] = -31770.3;   SS_ref_db.W[25] = -30509.0;   SS_ref_db.W[26] = -53874.9;
-    SS_ref_db.W[27] = -32880.3;   SS_ref_db.W[28] = -57917.9;   SS_ref_db.W[29] = -130785.0;
-    SS_ref_db.W[30] = -25859.2;   SS_ref_db.W[31] =      0.0;   SS_ref_db.W[32] = -16098.1;
-    SS_ref_db.W[33] =  21605.9;   SS_ref_db.W[34] = -179064.9;  SS_ref_db.W[35] =   3907.9;
-    SS_ref_db.W[36] = -71518.6;   SS_ref_db.W[37] =  12076.6;   SS_ref_db.W[38] = -149662.2;
-    SS_ref_db.W[39] =  57555.9;   SS_ref_db.W[40] =  -3186.9;   SS_ref_db.W[41] =  31405.5;
-    SS_ref_db.W[42] = -82971.8;   SS_ref_db.W[43] =    182.4;   SS_ref_db.W[44] =  46049.2;
-    SS_ref_db.W[45] =  30704.7;   SS_ref_db.W[46] = 113646.0;   SS_ref_db.W[47] =  75709.1;
-    SS_ref_db.W[48] =      0.0;   SS_ref_db.W[49] =      0.0;   SS_ref_db.W[50] =  -6823.9;
-    SS_ref_db.W[51] = -37256.7;   SS_ref_db.W[52] = -12970.8;   SS_ref_db.W[53] = -90533.8;
-    SS_ref_db.W[54] =  23649.4;   SS_ref_db.W[55] = -32464.5;   SS_ref_db.W[56] =  28873.6;
-    SS_ref_db.W[57] = -13040.1;   SS_ref_db.W[58] =   2934.6;   SS_ref_db.W[59] = -15780.8;
-    SS_ref_db.W[60] =  23727.4;   SS_ref_db.W[61] =      0.0;   SS_ref_db.W[62] =      0.0;
-    SS_ref_db.W[63] = -31731.9;   SS_ref_db.W[64] = -41876.9;   SS_ref_db.W[65] =  22323.1;
-    SS_ref_db.W[66] = -40853.6;   SS_ref_db.W[67] =  35633.7;   SS_ref_db.W[68] = -13247.1;
-    SS_ref_db.W[69] =  17111.1;   SS_ref_db.W[70] =  30012.5;   SS_ref_db.W[71] =  20374.6;
-    SS_ref_db.W[72] =   6522.8;   SS_ref_db.W[73] =      0.0;   SS_ref_db.W[74] = -96937.6;
-    SS_ref_db.W[75] =      0.0;   SS_ref_db.W[76] =  10374.2;   SS_ref_db.W[77] =  23255.4;
+    /* pMELTS (EM_database==2) W-table: CORRECTED 2026-07-14, see
+       [[gh-gexcess-verification]]. The ORIGINAL reasoning here (kept for
+       context, now known wrong) assumed pMELTS shares xMELTS' own
+       "meltsModelParameters[]" table (sources/liquid_v34.c) and just
+       deletes CO2's 12 touching indices - it does NOT. Real xMELTS-master
+       has a genuinely SEPARATE, independently-calibrated
+       "pMeltsModelParameters[]" table in the SAME
+       param_struct_data_v34.h (dispatched via
+       "calculationMode==MODE_pMELTS" inside gmixLiq_v34's own WH/WS/WV
+       macros - `(calculationMode==MODE__MELTS) ? meltsModelParameters[...]
+       : pMeltsModelParameters[...]`), with substantially different
+       calibrated values throughout (e.g. Al4O6-related terms are in the
+       -100000s to -400000s J range for pMELTS vs -20000 to -180000 for
+       xMELTS' Al2O3 terms - not a rescaling, a different calibration).
+       The table below was ALWAYS wrong before this fix - 65 of 66 values
+       (all but one, MnSi0.5O2-H2O, coincidentally 0.0 in both tables)
+       didn't match real pMeltsModelParameters[] at all; the previous
+       values were effectively xMELTS' own table with CO2 deleted, exactly
+       matching the (wrong) reasoning above. Extracted directly and
+       mechanically from pMeltsModelParameters[]'s own self-labeled "W(A,B)"
+       entries (param_struct_data_v34.h) via a small Python script
+       (pmelts_check2.py) - not hand-transcribed. Real pMELTS genuinely
+       has no CO2 endmember at all (unlike the mistaken "delete CO2 from
+       xMELTS' table" framing above implied), so this table is directly
+       66 terms for pMELTS' own 12 liquid components - no deletion/
+       compaction step needed or performed. */
+    if (EM_database == 2){
+        SS_ref_db.W[0] = 15094.7;   SS_ref_db.W[1] = -296975.2;   SS_ref_db.W[2] = -164027.4;
+        SS_ref_db.W[3] = 37459.2;   SS_ref_db.W[4] = -18841.4;   SS_ref_db.W[5] = 0.0;
+        SS_ref_db.W[6] = -33833.5;   SS_ref_db.W[7] = -34232.9;   SS_ref_db.W[8] = -59822.7;
+        SS_ref_db.W[9] = -102706.5;   SS_ref_db.W[10] = -45181.6;   SS_ref_db.W[11] = -144804.9;
+        SS_ref_db.W[12] = -212292.3;   SS_ref_db.W[13] = -22455.8;   SS_ref_db.W[14] = 9324.2;
+        SS_ref_db.W[15] = 0.0;   SS_ref_db.W[16] = 16335.6;   SS_ref_db.W[17] = -9471.5;
+        SS_ref_db.W[18] = 22194.2;   SS_ref_db.W[19] = -3744.0;   SS_ref_db.W[20] = 70663.0;
+        SS_ref_db.W[21] = -393566.0;   SS_ref_db.W[22] = -269339.7;   SS_ref_db.W[23] = -200788.1;
+        SS_ref_db.W[24] = 0.0;   SS_ref_db.W[25] = -192709.0;   SS_ref_db.W[26] = -270700.8;
+        SS_ref_db.W[27] = -205068.6;   SS_ref_db.W[28] = -114506.5;   SS_ref_db.W[29] = -161944.4;
+        SS_ref_db.W[30] = 201536.3;   SS_ref_db.W[31] = -211493.4;   SS_ref_db.W[32] = 0.0;
+        SS_ref_db.W[33] = -196914.9;   SS_ref_db.W[34] = -146008.1;   SS_ref_db.W[35] = -123728.7;
+        SS_ref_db.W[36] = -130847.5;   SS_ref_db.W[37] = -114508.6;   SS_ref_db.W[38] = -74759.0;
+        SS_ref_db.W[39] = 0.0;   SS_ref_db.W[40] = -3638.5;   SS_ref_db.W[41] = 48337.5;
+        SS_ref_db.W[42] = -43302.5;   SS_ref_db.W[43] = 124517.4;   SS_ref_db.W[44] = -18.9;
+        SS_ref_db.W[45] = 0.0;   SS_ref_db.W[46] = -28736.4;   SS_ref_db.W[47] = -28573.8;
+        SS_ref_db.W[48] = -4723.9;   SS_ref_db.W[49] = 22245.0;   SS_ref_db.W[50] = 9769.4;
+        SS_ref_db.W[51] = 0.0;   SS_ref_db.W[52] = 0.0;   SS_ref_db.W[53] = 0.0;
+        SS_ref_db.W[54] = 0.0;   SS_ref_db.W[55] = 0.0;   SS_ref_db.W[56] = 574.1;
+        SS_ref_db.W[57] = 9272.3;   SS_ref_db.W[58] = 36512.7;   SS_ref_db.W[59] = 24630.1;
+        SS_ref_db.W[60] = 7430.3;   SS_ref_db.W[61] = 19927.4;   SS_ref_db.W[62] = -1583.7;
+        SS_ref_db.W[63] = -1102.3;   SS_ref_db.W[64] = 13043.1;   SS_ref_db.W[65] = 35572.8;
+    }
+    /* rMELTS (EM_database==1): rhyolite-MELTS v1.2.0's own liquid model
+       (sources/liquid_CO2_H2O.c, includes/param_struct_data_CO2_H2O.h
+       "meltsAndCO2_H2OModelParameters[]"). Real rMELTS v1.2.0 has 19
+       liquid species (13 shared with xMELTS + NiSi0.5O2/CoSi0.5O2/
+       Ca3(PO4)2/SO3/Cl2O-1/F2O-1) - the 6 extra track Ni/Co/P/S/Cl/F,
+       none of which exist anywhere in gh's/MAGEMin's 13-oxide bulk-rock
+       system, so their mole fractions are always exactly 0 and every
+       Margules cross-term touching them vanishes identically - safely
+       excludable rather than needing to be ported (confirmed this is a
+       real simplification, not a shortcut: extending MAGEMin's oxide set
+       to add Ni/Co/P/S/Cl/F would be a much larger, separate undertaking
+       out of scope here). Compared programmatically (not by hand,
+       same practice as the earlier W-parameter diffs) against xMELTS'
+       own liquid.c calibration for all 78 relevant W-pairs AND every
+       endmember's H/S/V/Cp/EOS/Vliq/Kress/Tfus/Sfus/Cpl (meltsFluidLiquid[]
+       vs xMeltsLiquid[] in liq_struct_data.h): every single endmember's
+       standard-state data is byte-identical (so no new endmember table
+       is needed in GH_endmembers.c - EM_database==1 already correctly
+       falls through to the shared arr_em_db_gh_liq array), and of the 78
+       W-values, only the 9 involving H2O differ (indices 11,22,32,41,
+       56,67,71,74,76) - consistent with rMELTS v1.2.0 being described as
+       xMELTS plus a "new H2O model", not a wholesale liquid recalibration.
+       See [[gh-multicalibration-xmelts-rmelts-pmelts]]. */
+    else if (EM_database == 1){
+        SS_ref_db.W[0]  =  26266.7;   SS_ref_db.W[1]  = -39120.0;   SS_ref_db.W[2]  =   8110.3;
+        SS_ref_db.W[3]  =  27886.3;   SS_ref_db.W[4]  =  23660.9;   SS_ref_db.W[5]  =  18393.9;
+        SS_ref_db.W[6]  =   3421.0;   SS_ref_db.W[7]  =   -863.7;   SS_ref_db.W[8]  = -99039.0;
+        SS_ref_db.W[9]  = -33921.7;   SS_ref_db.W[10] =      0.0;   SS_ref_db.W[11] =  27357.0;
+        SS_ref_db.W[12] = -29449.8;   SS_ref_db.W[13] = -84756.9;   SS_ref_db.W[14] = -72303.4;
+        SS_ref_db.W[15] =   5209.1;   SS_ref_db.W[16] = -16123.5;   SS_ref_db.W[17] =  -4178.3;
+        SS_ref_db.W[18] = -35372.5;   SS_ref_db.W[19] = -15415.6;   SS_ref_db.W[20] = -48094.6;
+        SS_ref_db.W[21] = -19265.7;   SS_ref_db.W[22] =  88199.2;   SS_ref_db.W[23] = -17089.4;
+        SS_ref_db.W[24] = -31770.3;   SS_ref_db.W[25] = -30509.0;   SS_ref_db.W[26] = -53874.9;
+        SS_ref_db.W[27] = -32880.3;   SS_ref_db.W[28] = -57917.9;   SS_ref_db.W[29] = -130785.0;
+        SS_ref_db.W[30] = -25859.2;   SS_ref_db.W[31] =      0.0;   SS_ref_db.W[32] =  11768.4;
+        SS_ref_db.W[33] =  21605.9;   SS_ref_db.W[34] = -179064.9;  SS_ref_db.W[35] =   3907.9;
+        SS_ref_db.W[36] = -71518.6;   SS_ref_db.W[37] =  12076.6;   SS_ref_db.W[38] = -149662.2;
+        SS_ref_db.W[39] =  57555.9;   SS_ref_db.W[40] =  -3186.9;   SS_ref_db.W[41] =  50105.2;
+        SS_ref_db.W[42] = -82971.8;   SS_ref_db.W[43] =    182.4;   SS_ref_db.W[44] =  46049.2;
+        SS_ref_db.W[45] =  30704.7;   SS_ref_db.W[46] = 113646.0;   SS_ref_db.W[47] =  75709.1;
+        SS_ref_db.W[48] =      0.0;   SS_ref_db.W[49] =      0.0;   SS_ref_db.W[50] =  -6823.9;
+        SS_ref_db.W[51] = -37256.7;   SS_ref_db.W[52] = -12970.8;   SS_ref_db.W[53] = -90533.8;
+        SS_ref_db.W[54] =  23649.4;   SS_ref_db.W[55] = -32464.5;   SS_ref_db.W[56] =  30936.5;
+        SS_ref_db.W[57] = -13040.1;   SS_ref_db.W[58] =   2934.6;   SS_ref_db.W[59] = -15780.8;
+        SS_ref_db.W[60] =  23727.4;   SS_ref_db.W[61] =      0.0;   SS_ref_db.W[62] =      0.0;
+        SS_ref_db.W[63] = -31731.9;   SS_ref_db.W[64] = -41876.9;   SS_ref_db.W[65] =  22323.1;
+        SS_ref_db.W[66] = -40853.6;   SS_ref_db.W[67] =  20909.9;   SS_ref_db.W[68] = -13247.1;
+        SS_ref_db.W[69] =  17111.1;   SS_ref_db.W[70] =  30012.5;   SS_ref_db.W[71] =   9715.0;
+        SS_ref_db.W[72] =   6522.8;   SS_ref_db.W[73] =      0.0;   SS_ref_db.W[74] = -82460.1;
+        SS_ref_db.W[75] =      0.0;   SS_ref_db.W[76] =   1057.2;   SS_ref_db.W[77] =  23255.4;
+    }
+    /* xMELTS (EM_database==0). CO2-touching entries (indices 10,21,31,40,
+       49,55,62,66,70,73,75,76,77 in this 78-term enumeration) were found
+       wrong 2026-07-14 via [[gh-gexcess-verification]]'s liq H2O/CO2-
+       sensitive-diff investigation: 10 of 12 CO2-touching W-values didn't
+       match real xMELTS' own param_struct_data_v34.h "meltsModelParameters[]"
+       table at all (not a rounding slip - e.g. SiO2-CO2 was 0.0, should be
+       66600.7; Fe2SiO4-CO2 was -32464.5, should be 134680.2) - likely a
+       systematic error introduced somewhere in this table's original
+       transcription/generation, isolated to the CO2 column specifically
+       (every non-CO2 H2O-touching entry, and every other entry, matched
+       exactly). Corrected directly against the source table (all other
+       78 values cross-checked clean, only the entries below changed). */
+    else {
+        SS_ref_db.W[0]  =  26266.7;   SS_ref_db.W[1]  = -39120.0;   SS_ref_db.W[2]  =   8110.3;
+        SS_ref_db.W[3]  =  27886.3;   SS_ref_db.W[4]  =  23660.9;   SS_ref_db.W[5]  =  18393.9;
+        SS_ref_db.W[6]  =   3421.0;   SS_ref_db.W[7]  =   -863.7;   SS_ref_db.W[8]  = -99039.0;
+        SS_ref_db.W[9]  = -33921.7;   SS_ref_db.W[10] =  66600.7;   SS_ref_db.W[11] =  30967.3;
+        SS_ref_db.W[12] = -29449.8;   SS_ref_db.W[13] = -84756.9;   SS_ref_db.W[14] = -72303.4;
+        SS_ref_db.W[15] =   5209.1;   SS_ref_db.W[16] = -16123.5;   SS_ref_db.W[17] =  -4178.3;
+        SS_ref_db.W[18] = -35372.5;   SS_ref_db.W[19] = -15415.6;   SS_ref_db.W[20] = -48094.6;
+        SS_ref_db.W[21] =  25427.3;   SS_ref_db.W[22] =  81879.1;   SS_ref_db.W[23] = -17089.4;
+        SS_ref_db.W[24] = -31770.3;   SS_ref_db.W[25] = -30509.0;   SS_ref_db.W[26] = -53874.9;
+        SS_ref_db.W[27] = -32880.3;   SS_ref_db.W[28] = -57917.9;   SS_ref_db.W[29] = -130785.0;
+        SS_ref_db.W[30] = -25859.2;   SS_ref_db.W[31] =  27043.7;   SS_ref_db.W[32] = -16098.1;
+        SS_ref_db.W[33] =  21605.9;   SS_ref_db.W[34] = -179064.9;  SS_ref_db.W[35] =   3907.9;
+        SS_ref_db.W[36] = -71518.6;   SS_ref_db.W[37] =  12076.6;   SS_ref_db.W[38] = -149662.2;
+        SS_ref_db.W[39] =  57555.9;   SS_ref_db.W[40] =   1688.8;   SS_ref_db.W[41] =  31405.5;
+        SS_ref_db.W[42] = -82971.8;   SS_ref_db.W[43] =    182.4;   SS_ref_db.W[44] =  46049.2;
+        SS_ref_db.W[45] =  30704.7;   SS_ref_db.W[46] = 113646.0;   SS_ref_db.W[47] =  75709.1;
+        SS_ref_db.W[48] =      0.0;   SS_ref_db.W[49] =      0.0;   SS_ref_db.W[50] =  -6823.9;
+        SS_ref_db.W[51] = -37256.7;   SS_ref_db.W[52] = -12970.8;   SS_ref_db.W[53] = -90533.8;
+        SS_ref_db.W[54] =  23649.4;   SS_ref_db.W[55] = 134680.2;   SS_ref_db.W[56] =  28873.6;
+        SS_ref_db.W[57] = -13040.1;   SS_ref_db.W[58] =   2934.6;   SS_ref_db.W[59] = -15780.8;
+        SS_ref_db.W[60] =  23727.4;   SS_ref_db.W[61] =      0.0;   SS_ref_db.W[62] =      0.0;
+        SS_ref_db.W[63] = -31731.9;   SS_ref_db.W[64] = -41876.9;   SS_ref_db.W[65] =  22323.1;
+        SS_ref_db.W[66] =  47406.1;   SS_ref_db.W[67] =  35633.7;   SS_ref_db.W[68] = -13247.1;
+        SS_ref_db.W[69] =  17111.1;   SS_ref_db.W[70] =  44513.8;   SS_ref_db.W[71] =  20374.6;
+        SS_ref_db.W[72] =   6522.8;   SS_ref_db.W[73] =   9846.7;   SS_ref_db.W[74] = -96937.6;
+        SS_ref_db.W[75] =   1744.4;   SS_ref_db.W[76] =  10374.2;   SS_ref_db.W[77] =  43128.4;
+    }
 
+    /* pMELTS (EM_database==2) has no CO2 endmember at all (see
+       GH_endmembers.c's table) - fetching "CO2" via get_em_data would hit
+       find_EM_id()'s -1 "not found" return and then an out-of-bounds
+       Access_GH_EM_DB(2,-1) read, since CO2 isn't in this dataset's
+       endmember hashtable (gv.n_em_db==12). Branch early instead: 12
+       fetches, no CO2_eq, H2O shifted from index 12 to index 11. Real
+       xMELTS/rMELTS (EM_database 0/1) keep the original 13-endmember,
+       CO2-inclusive path below unchanged. */
+    if (EM_database == 2){
+        em_data SiO2_eq    = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "Si4O8",       "equilibrium");
+        em_data TiO2_eq    = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "TiO2",        "equilibrium");
+        em_data Al2O3_eq   = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "Al4O6",       "equilibrium");
+        em_data Fe2O3_eq   = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "Fe2O3",       "equilibrium");
+        em_data MgCr2O4_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "MgCr2O4",     "equilibrium");
+        em_data Fe2SiO4_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "Fe2SiO4",     "equilibrium");
+        em_data MnSi_eq    = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "MnSi0.5O2",   "equilibrium");
+        em_data Mg2SiO4_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "Mg2SiO4",     "equilibrium");
+        em_data CaSiO3_eq  = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "Ca2Si2O6",    "equilibrium");
+        em_data Na2SiO3_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "NaSi0.5O1.5", "equilibrium");
+        em_data KAlSiO4_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "KAlSiO4",     "equilibrium");
+        GH_H2O_liquid_context = 1;
+        em_data H2O_eq     = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "H2O",         "equilibrium");
+        GH_H2O_liquid_context = 0;
+
+        SS_ref_db.gbase[0]  = SiO2_eq.gb;
+        SS_ref_db.gbase[1]  = TiO2_eq.gb;
+        SS_ref_db.gbase[2]  = Al2O3_eq.gb;
+        SS_ref_db.gbase[3]  = Fe2O3_eq.gb;
+        SS_ref_db.gbase[4]  = MgCr2O4_eq.gb;
+        SS_ref_db.gbase[5]  = Fe2SiO4_eq.gb;
+        SS_ref_db.gbase[6]  = MnSi_eq.gb;
+        SS_ref_db.gbase[7]  = Mg2SiO4_eq.gb;
+        SS_ref_db.gbase[8]  = CaSiO3_eq.gb;
+        SS_ref_db.gbase[9]  = Na2SiO3_eq.gb;
+        SS_ref_db.gbase[10] = KAlSiO4_eq.gb;
+        SS_ref_db.gbase[11] = H2O_eq.gb;
+
+        SS_ref_db.ElShearMod[0]  = SiO2_eq.ElShearMod;
+        SS_ref_db.ElShearMod[1]  = TiO2_eq.ElShearMod;
+        SS_ref_db.ElShearMod[2]  = Al2O3_eq.ElShearMod;
+        SS_ref_db.ElShearMod[3]  = Fe2O3_eq.ElShearMod;
+        SS_ref_db.ElShearMod[4]  = MgCr2O4_eq.ElShearMod;
+        SS_ref_db.ElShearMod[5]  = Fe2SiO4_eq.ElShearMod;
+        SS_ref_db.ElShearMod[6]  = MnSi_eq.ElShearMod;
+        SS_ref_db.ElShearMod[7]  = Mg2SiO4_eq.ElShearMod;
+        SS_ref_db.ElShearMod[8]  = CaSiO3_eq.ElShearMod;
+        SS_ref_db.ElShearMod[9]  = Na2SiO3_eq.ElShearMod;
+        SS_ref_db.ElShearMod[10] = KAlSiO4_eq.ElShearMod;
+        SS_ref_db.ElShearMod[11] = H2O_eq.ElShearMod;
+
+        SS_ref_db.ElBulkMod[0]  = SiO2_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[1]  = TiO2_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[2]  = Al2O3_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[3]  = Fe2O3_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[4]  = MgCr2O4_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[5]  = Fe2SiO4_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[6]  = MnSi_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[7]  = Mg2SiO4_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[8]  = CaSiO3_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[9]  = Na2SiO3_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[10] = KAlSiO4_eq.ElBulkMod;
+        SS_ref_db.ElBulkMod[11] = H2O_eq.ElBulkMod;
+
+        SS_ref_db.ElCp[0]  = SiO2_eq.ElCp;
+        SS_ref_db.ElCp[1]  = TiO2_eq.ElCp;
+        SS_ref_db.ElCp[2]  = Al2O3_eq.ElCp;
+        SS_ref_db.ElCp[3]  = Fe2O3_eq.ElCp;
+        SS_ref_db.ElCp[4]  = MgCr2O4_eq.ElCp;
+        SS_ref_db.ElCp[5]  = Fe2SiO4_eq.ElCp;
+        SS_ref_db.ElCp[6]  = MnSi_eq.ElCp;
+        SS_ref_db.ElCp[7]  = Mg2SiO4_eq.ElCp;
+        SS_ref_db.ElCp[8]  = CaSiO3_eq.ElCp;
+        SS_ref_db.ElCp[9]  = Na2SiO3_eq.ElCp;
+        SS_ref_db.ElCp[10] = KAlSiO4_eq.ElCp;
+        SS_ref_db.ElCp[11] = H2O_eq.ElCp;
+
+        SS_ref_db.ElExpansivity[0]  = SiO2_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[1]  = TiO2_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[2]  = Al2O3_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[3]  = Fe2O3_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[4]  = MgCr2O4_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[5]  = Fe2SiO4_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[6]  = MnSi_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[7]  = Mg2SiO4_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[8]  = CaSiO3_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[9]  = Na2SiO3_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[10] = KAlSiO4_eq.ElExpansivity;
+        SS_ref_db.ElExpansivity[11] = H2O_eq.ElExpansivity;
+
+        for (i = 0; i < len_ox; i++){
+            SS_ref_db.Comp[0][i]  = SiO2_eq.C[i];
+            SS_ref_db.Comp[1][i]  = TiO2_eq.C[i];
+            SS_ref_db.Comp[2][i]  = Al2O3_eq.C[i];
+            SS_ref_db.Comp[3][i]  = Fe2O3_eq.C[i];
+            SS_ref_db.Comp[4][i]  = MgCr2O4_eq.C[i];
+            SS_ref_db.Comp[5][i]  = Fe2SiO4_eq.C[i];
+            SS_ref_db.Comp[6][i]  = MnSi_eq.C[i];
+            SS_ref_db.Comp[7][i]  = Mg2SiO4_eq.C[i];
+            SS_ref_db.Comp[8][i]  = CaSiO3_eq.C[i];
+            SS_ref_db.Comp[9][i]  = Na2SiO3_eq.C[i];
+            SS_ref_db.Comp[10][i] = KAlSiO4_eq.C[i];
+            SS_ref_db.Comp[11][i] = H2O_eq.C[i];
+        }
+
+        for (i = 0; i < n_em; i++){ SS_ref_db.z_em[i] = 1.0; };
+
+        for (i = 0; i < SS_ref_db.n_xeos; i++){
+            SS_ref_db.bounds_ref[i][0] = 0.0+eps;
+            SS_ref_db.bounds_ref[i][1] = 1.0-eps;
+        }
+
+        for (i = 0; i < n_em; i++){ SS_ref_db.d_em[i] = 0.0; }
+        if (GH_boiled_out(len_ox, SiO2_eq.C,    z_b.bulk_rock)){ SS_ref_db.d_em[0]  = 1.0; SS_ref_db.z_em[0]  = 0.0; SS_ref_db.bounds_ref[0][0]  = 0.0; SS_ref_db.bounds_ref[0][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, TiO2_eq.C,    z_b.bulk_rock)){ SS_ref_db.d_em[1]  = 1.0; SS_ref_db.z_em[1]  = 0.0; SS_ref_db.bounds_ref[1][0]  = 0.0; SS_ref_db.bounds_ref[1][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, Al2O3_eq.C,   z_b.bulk_rock)){ SS_ref_db.d_em[2]  = 1.0; SS_ref_db.z_em[2]  = 0.0; SS_ref_db.bounds_ref[2][0]  = 0.0; SS_ref_db.bounds_ref[2][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, Fe2O3_eq.C,   z_b.bulk_rock)){ SS_ref_db.d_em[3]  = 1.0; SS_ref_db.z_em[3]  = 0.0; SS_ref_db.bounds_ref[3][0]  = 0.0; SS_ref_db.bounds_ref[3][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, MgCr2O4_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[4]  = 1.0; SS_ref_db.z_em[4]  = 0.0; SS_ref_db.bounds_ref[4][0]  = 0.0; SS_ref_db.bounds_ref[4][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, Fe2SiO4_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[5]  = 1.0; SS_ref_db.z_em[5]  = 0.0; SS_ref_db.bounds_ref[5][0]  = 0.0; SS_ref_db.bounds_ref[5][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, MnSi_eq.C,    z_b.bulk_rock)){ SS_ref_db.d_em[6]  = 1.0; SS_ref_db.z_em[6]  = 0.0; SS_ref_db.bounds_ref[6][0]  = 0.0; SS_ref_db.bounds_ref[6][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, Mg2SiO4_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[7]  = 1.0; SS_ref_db.z_em[7]  = 0.0; SS_ref_db.bounds_ref[7][0]  = 0.0; SS_ref_db.bounds_ref[7][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, CaSiO3_eq.C,  z_b.bulk_rock)){ SS_ref_db.d_em[8]  = 1.0; SS_ref_db.z_em[8]  = 0.0; SS_ref_db.bounds_ref[8][0]  = 0.0; SS_ref_db.bounds_ref[8][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, Na2SiO3_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[9]  = 1.0; SS_ref_db.z_em[9]  = 0.0; SS_ref_db.bounds_ref[9][0]  = 0.0; SS_ref_db.bounds_ref[9][1]  = 0.0; }
+        if (GH_boiled_out(len_ox, KAlSiO4_eq.C, z_b.bulk_rock)){ SS_ref_db.d_em[10] = 1.0; SS_ref_db.z_em[10] = 0.0; SS_ref_db.bounds_ref[10][0] = 0.0; SS_ref_db.bounds_ref[10][1] = 0.0; }
+        if (GH_boiled_out(len_ox, H2O_eq.C,     z_b.bulk_rock)){ SS_ref_db.d_em[11] = 1.0; SS_ref_db.z_em[11] = 0.0; SS_ref_db.bounds_ref[11][0] = 0.0; SS_ref_db.bounds_ref[11][1] = 0.0; }
+
+        return SS_ref_db;
+    }
+
+    /* xMELTS/rMELTS (EM_database 0/1): 13 endmembers including CO2. */
     em_data SiO2_eq    = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "SiO2",      "equilibrium");
     em_data TiO2_eq    = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "TiO2",      "equilibrium");
     em_data Al2O3_eq   = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "Al2O3",     "equilibrium");
@@ -99,7 +355,9 @@ SS_ref G_SS_gh_liq_function(SS_ref SS_ref_db, char* research_group, int EM_datas
     em_data Na2SiO3_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "Na2SiO3",   "equilibrium");
     em_data KAlSiO4_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "KAlSiO4",   "equilibrium");
     em_data CO2_eq     = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "CO2",       "equilibrium");
+    GH_H2O_liquid_context = 1;   /* liquid's own "H2O" basis species, not the standalone "water" phase - see GH_gem_function.h */
     em_data H2O_eq     = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "H2O",       "equilibrium");
+    GH_H2O_liquid_context = 0;
 
     SS_ref_db.gbase[0]  = SiO2_eq.gb;
     SS_ref_db.gbase[1]  = TiO2_eq.gb;
@@ -299,7 +557,13 @@ SS_ref G_SS_gh_fluid_function(SS_ref SS_ref_db, char* research_group, int EM_dat
         strcpy(SS_ref_db.EM_list[i], EM_tmp[i]);
     };
 
+    /* Kept on the liquid's own "H2O" formula (not the standalone "water"
+       phase's), preserving this phase's existing, previously-verified
+       gbase[0] value unchanged - see GH_gem_function.h's
+       GH_H2O_liquid_context comment and [[gh-fluid-mixing-model]]. */
+    GH_H2O_liquid_context = 1;
     em_data h2o_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "H2O", "equilibrium");
+    GH_H2O_liquid_context = 0;
     em_data co2_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "CO2", "equilibrium");
 
     SS_ref_db.gbase[0] = h2o_eq.gb;
@@ -1277,7 +1541,7 @@ SS_ref G_SS_gh_EM_function(    global_variable  gv,
         SS_ref_db.T = T + gv.gb_T_eps*gv.pdev[1][FD];
 
         if (strcmp( name, "liq") == 0 ){
-            SS_ref_db = G_SS_gh_liq_function(SS_ref_db, gv.research_group, EM_dataset, gv.len_ox, z_b, eps);
+            SS_ref_db = G_SS_gh_liq_function(SS_ref_db, gv.research_group, EM_dataset, gv.EM_database, gv.len_ox, z_b, eps);
         }
         else if (strcmp( name, "ol") == 0 ){
             SS_ref_db = G_SS_gh_ol_function(SS_ref_db, gv.research_group, EM_dataset, gv.len_ox, z_b, eps);

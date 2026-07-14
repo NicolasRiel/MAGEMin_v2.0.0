@@ -51,7 +51,7 @@ void print_help(	global_variable gv	){
 	printf("  --File=       [str]   : File name containing multiple point calculation\n");
 	printf("  --n_points=   [int]   : Number of points when using 'File' argument\n");
 	printf("  --rg=         [str]   : ResearchGroup, can be 'tc', 'sb' or 'gh' (THERMOCALC, Stixrude-Lithgow-Bertelloni, Ghiorso/MELTS)\n");
-	printf("  --db=         [str]   : Database, can be 'mp', 'ig', 'igad', 'um'or 'ume'* for TC, 2011/2024 for SB, or 'gh21' for GH\n");
+	printf("  --db=         [str]   : Database, can be 'mp', 'ig', 'igad', 'um'or 'ume'* for TC, 2011/2024 for SB, or 'xMELTS'/'rMELTS'/'pMELTS' for GH\n");
 	printf("  --ds=         [int]   : TC End-member dataset, 62, 633 or 634 (stands for ds6xx)\n");
 	printf("  --test=       [int]   : Number of points when using 'File' argument\n");
 	printf("  --Pres=       [float] : Pressure in kilobar\n");
@@ -322,13 +322,19 @@ bulk_info retrieve_bulk_PT(				global_variable      gv,
 		if (gv.bulk_rock[i] < 1.0e-4){
 
 			if (strcmp(gv.research_group, "gh") == 0){
-				if (gv.EM_database == 0){ 			// "gh21" (Ghiorso/MELTS) database
-					if(strcmp( gv.ox[i], "FeO") == 0){
-						gv.bulk_rock[i] = 1.0e-4;
-						renorm = 1;
-						if (gv.verbose == 1){
-							printf("  - mol of %4s = %+.5f < 1e-4        : set back to 1e-4 to avoid minimization issues\n",gv.ox[i],gv.bulk_rock[i]);
-						}
+				/* Ghiorso/MELTS (xMELTS=0, rMELTS=1, pMELTS=2): the FeO=0
+				   solver failure this clip works around traces to the
+				   "1 FeO + 0.5 O per Fe3+" convention coupling the FeO/O
+				   oxide axes across many endmembers (see
+				   [[gh-reduced-system-support]]) - shared solid-phase
+				   data/formulas across all 3 calibration families
+				   (confirmed via Makefile.common), so this clip applies
+				   uniformly regardless of which one is active. */
+				if(strcmp( gv.ox[i], "FeO") == 0){
+					gv.bulk_rock[i] = 1.0e-4;
+					renorm = 1;
+					if (gv.verbose == 1){
+						printf("  - mol of %4s = %+.5f < 1e-4        : set back to 1e-4 to avoid minimization issues\n",gv.ox[i],gv.bulk_rock[i]);
 					}
 				}
 			}
@@ -998,7 +1004,13 @@ global_variable get_tests_bulks(	global_variable  	 gv
 		}
 	}
 	else if ( strcmp(gv.research_group, "gh") 	== 0 ){
-		gv = get_bulk_gh( 		gv );
+		if (gv.EM_database == 2){
+			/* pMELTS: 12-oxide bulk (CO2 dropped) - see gh_db_pmelts_dataset */
+			gv = get_bulk_pmelts_dataset( 	gv );
+		}
+		else{
+			gv = get_bulk_gh( 		gv );
+		}
 	}
 	else{
 		printf(" Wrong research group...\n");
@@ -2053,15 +2065,15 @@ global_variable compute_activities(			int					 EM_database,
 											PP_ref  			*PP_ref_db,
 											bulk_info 			 z_b			){
 
-	if (strcmp(gv.research_group, "gh") == 0){
-		/* This function probes pure mineral endmembers (q/coe/st, per, fper,
-		   cor, ru, fa, mt...) that the Stage-A "gh" (Ghiorso/MELTS liquid-only)
-		   database does not have - none of gh's activity outputs are
-		   meaningful yet, and calling G_EM_function with those names would
-		   fail (they're not in gh's endmember hashtable). Skip until a
-		   broader gh database exists. */
-		return gv;
-	}
+	// if (strcmp(gv.research_group, "gh") == 0){
+	// 	/* This function probes pure mineral endmembers (q/coe/st, per, fper,
+	// 	   cor, ru, fa, mt...) that the Stage-A "gh" (Ghiorso/MELTS liquid-only)
+	// 	   database does not have - none of gh's activity outputs are
+	// 	   meaningful yet, and calling G_EM_function with those names would
+	// 	   fail (they're not in gh's endmember hashtable). Skip until a
+	// 	   broader gh database exists. */
+	// 	return gv;
+	// }
 
 	PP_ref PP_db;
 

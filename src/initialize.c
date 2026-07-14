@@ -87,7 +87,7 @@ char** get_EM_DB_names_gh(global_variable gv) {
         names[i] = malloc(20 * sizeof(char));
     }
     for ( i = 0; i < n_em_db; i++){
-        EM_return = Access_GH_EM_DB(i);
+        EM_return = Access_GH_EM_DB(gv.EM_database, i);
         strcpy(names[i],EM_return.Name);
     }
     return names;

@@ -33,6 +33,7 @@
 #include <math.h>
 #include <string.h>
 #include <float.h>
+#include <stdio.h>
 
 #include "../MAGEMin.h"
 #include "GH_endmembers.h"
@@ -43,6 +44,25 @@
 #define GH_Tr    298.15   /* reference temperature (K), matches xMELTS TR      */
 #define GH_Pr    1.0      /* reference pressure (bar), matches xMELTS PR      */
 #define GH_kbar2bar 1000.0
+
+/** GH_G_EM_function's own "EM_database" parameter is NOT the calibration-
+    family id (0=xMELTS/1=rMELTS/2=pMELTS) despite the name - it's fed
+    gv.EM_dataset (always 1 for gh, a leftover from tc/sb's own, unrelated
+    "endmember dataset version" concept) all the way through the shared
+    get_em_data->G_EM_function->GH_G_EM_function call chain, which has
+    ~990 call sites across tc/sb/gh and was not worth widening just for
+    this. Real gv.EM_database is threaded in here instead the same way
+    GH_cpx_SS2/GH_spn_multistart_flag are: a plain global (not static,
+    since GH_SS_objective_init_function that sets it lives in a different
+    file, gh_objective_functions.c) set once at solution-phase init time.
+    Found while wiring pMELTS liquid support, 2026-07-14 - see
+    [[gh-multicalibration-xmelts-rmelts-pmelts]]. */
+int GH_actual_EM_database = 0;
+
+/** See GH_gem_function.h for the full explanation. Default 0 = pure
+    standalone "water" phase semantics; set to 1 only around the liquid's
+    own "H2O" basis-species lookups (gh_gss_function.c). */
+int GH_H2O_liquid_context = 0;
 
 /**
     Integrate the Berman (1988) solid Cp polynomial (k0,k1,k2,k3) from Tr to
@@ -132,13 +152,32 @@ static double GH_O2_G(double T, double P){
     dTdP=0); above cp_t, switches to the beta phase's own H0/S0 (Berman
     1988) reintegrated with the SAME Cp coefficients from Tr, and its own
     V0/eos_berman for the pressure term.
+
+    Two quartz-only quirks confirmed against source (2026-07-14, found by
+    diffing gh's gbase directly against a real xMELTS Test_gibbs run,
+    which showed quartz off by a near-constant ~1.29 kJ across a wide T/P
+    sweep while chromite/hercynite/magnetite/spinel/ulvospinel matched to
+    <0.001 kJ - ruling out the shared Berman/EOS engine and pointing at
+    something quartz-specific):
+    1. QUARTZ_ADJUSTMENT = -1291.0 J: a real, hardcoded empirical
+       calibration correction in gibbs.c's RHYOLITE_ADJUSTMENTS branch
+       (the one gh replicates - WETTING_ANGLE_CORR, the other additive
+       term in the same source line, is always 0.0 so doesn't need
+       porting), applied unconditionally to quartz's G regardless of
+       alpha/beta branch. Not present for cristobalite/tridymite.
+    2. The alpha-branch lambda-correction reference temperature: quartz's
+       own source hardcodes the literal constant 373.0 (K) instead of Tr
+       (298.15 K) - unlike tridymite/cristobalite, which both genuinely
+       use Tr there. Kept as a quartz-only literal below, not routed
+       through GH_Tr, to stay faithful to that source-level asymmetry.
 */
-static double GH_SiO2_polymorph_G(int beta_id, double T, double P,
+static double GH_SiO2_polymorph_G(int is_quartz, double T, double P,
                                    const PP_db_gh *alpha, const PP_db_gh_beta *beta){
     double k0 = alpha->cp_berman[0], k1 = alpha->cp_berman[1];
     double k2 = alpha->cp_berman[2], k3 = alpha->cp_berman[3];
     double Tt = alpha->cp_berman[4], l1 = alpha->cp_berman[6], l2 = alpha->cp_berman[7];
     double cp_t = Tt + beta->dTdP*(P-1.0);
+    const double QUARTZ_ADJUSTMENT = -1291.0; /* J, RHYOLITE_ADJUSTMENTS branch of gibbs.c */
 
     double H, S, V0; const double *eos;
     if (T > cp_t){
@@ -162,7 +201,7 @@ static double GH_SiO2_polymorph_G(int beta_id, double T, double P,
         double x2 = l1*l1 + 4.0*l1*l2*delt + 3.0*l2*l2*delt*delt;
         double x3 = 2.0*l1*l2 + 3.0*l2*l2*delt;
         double x4 = l2*l2;
-        double Tr_shift = GH_Tr - delt;
+        double Tr_shift = (is_quartz ? 373.0 : GH_Tr) - delt;
         H += x1*(T-Tr_shift) + x2*(T*T-Tr_shift*Tr_shift)/2.0
            + x3*(T*T*T-Tr_shift*Tr_shift*Tr_shift)/3.0
            + x4*(T*T*T*T-Tr_shift*Tr_shift*Tr_shift*Tr_shift)/4.0;
@@ -171,7 +210,9 @@ static double GH_SiO2_polymorph_G(int beta_id, double T, double P,
 
         V0 = alpha->V; eos = alpha->eos_berman;
     }
-    return (H - T*S) + GH_berman_EOS_dG(T, P, V0, eos);
+    double G = (H - T*S) + GH_berman_EOS_dG(T, P, V0, eos);
+    if (is_quartz){ G += QUARTZ_ADJUSTMENT; }
+    return G;
 }
 
 /**
@@ -387,6 +428,79 @@ static double GH_caneph_G(double T, double P){
     return 23096.0 - T*15.8765 + 0.5*GH_naneph_vinet_G(T, P, 5.433181*8.0);
 }
 
+/**
+    pMELTS liquid pressure correction, ported from xMELTS' sources/gibbs.c
+    (the "if (calculationMode == MODE_pMELTS)" block, ~line 1493-1595):
+    a genuinely different volume-integration engine from the Kress
+    polynomial used for xMELTS/rMELTS - NOT an addition on top of the
+    Kress dG_P term, a full REPLACEMENT of it (confirmed by tracing
+    gibbs.c's own control flow: the Kress branch a few lines above is
+    gated on MODE__MELTS/MODE__MELTSandCO2/MODE__MELTSandCO2_H2O or
+    MODE_xMELTS - MODE_pMELTS matches none of those, so hl/sl reaching
+    this block are still the plain Pr-reference (Tr-to-Tfus-to-T
+    integrated) values, exactly matching gh's own G_Pr before this call).
+
+    A 3rd-order Birch-Murnaghan EOS with Kp hardcoded to 5.0 for pMELTS
+    (real source: "double Kp = (calculationMode == MODE_pMELTS) ? 5.0 :
+    liquid->eos.Kress.d2vdp2;"), volume solved by Newton's method from the
+    reference volume v0 (the Kress dV/dT-corrected but NOT dV/dP-corrected
+    volume at Pr), then G = G_Pr + p*v - pr*v0 + minusIntPdV (a BM3
+    pressure-integral closed form). Value-only port (drops the extensive
+    T-derivative bookkeeping real gibbs.c also carries for Cp/dCp/dT,
+    matching gh's general policy elsewhere).
+
+    Trigger condition (real source: "p > pr && (dvdp+d2vdtp*(t-trl)) !=
+    0.0") - when false (essentially only if a pMELTS endmember's Kress
+    dV/dP terms are literally zero, or in the P<=Pr edge case never hit by
+    gh's own P>=1kbar grid), real gibbs.c applies NO pressure correction
+    at all (not even the trivial Vl*(P-Pr) Kress linear term) - a real,
+    distinct-from-Kress fallback behavior, ported here as returning 0.0.
+
+    Found missing entirely 2026-07-15/16 during the 10x10 grid sweep -
+    caught because the earlier Phase 3 pMELTS liquid port verification was
+    only ever checked at one low-pressure point (~2kbar) where this
+    correction is still negligible. Grows to multi-kJ magnitude by
+    25kbar. See [[gh-multicalibration-xmelts-rmelts-pmelts]] and
+    [[gh-spn-liq-gbase-verification]].
+*/
+static double GH_pmelts_liq_BM3_dG(double T, double P, double Vl,
+                                    double dvdt, double dvdp, double d2vdtp){
+    const double Trl = 1673.0;
+    double v0     = Vl + dvdt*(T - Trl);
+    double dv0dp  = dvdp + d2vdtp*(T - Trl);
+
+    if (!(P > GH_Pr) || dv0dp == 0.0){
+        return 0.0;
+    }
+
+    double K  = -v0/dv0dp;
+    const double Kp = 5.0;
+
+    double v = v0*0.99, vLast = v0;
+    int iter = 0;
+    while (fabs(v - vLast) > 10.0*DBL_EPSILON && iter < 1000){
+        double r23 = pow(v0/v, 2.0/3.0), r43 = pow(v0/v, 4.0/3.0);
+        double r53 = pow(v0/v, 5.0/3.0), r73 = pow(v0/v, 7.0/3.0);
+        double rm13 = pow(v0/v, -1.0/3.0);
+        double bracket = 1.0 - 0.75*(4.0-Kp)*(r23 - 1.0);
+
+        double fn  = 1.5*K*(r73 - r53)*bracket - P;
+        double dfn = 1.5*K*((7.0/3.0)*r43 - (5.0/3.0)*r23)*(-v0/(v*v))*bracket
+                   + 1.5*K*(r73 - r53)*(-0.75*(4.0-Kp)*(2.0/3.0)*rm13)*(-v0/(v*v));
+
+        vLast = v;
+        v    += -fn/dfn;
+        if (v > v0)      v = v0;
+        if (v < 0.01*v0) v = 0.01*v0;
+        iter++;
+    }
+
+    double f = (pow(v0/v, 2.0/3.0) - 1.0)/2.0;
+    double minusIntPdV = 4.5*K*(Kp-4.0)*v0*f*f*f + 4.5*K*v0*f*f;
+
+    return P*v - GH_Pr*v0 + minusIntPdV;
+}
+
 static PP_ref GH_pack_PP_ref(char *name, int len_ox, const double *Comp,
                               double *bulk_rock, double *apo, double gbase_J){
     PP_ref PP_ref_db;
@@ -436,7 +550,7 @@ PP_ref GH_G_EM_function(   int          EM_database,
         int pp_id_sio2 = GH_find_PP_id(name);
         PP_db_gh alpha = Access_GH_PP_DB(pp_id_sio2);
         PP_db_gh_beta beta = Access_GH_SiO2_beta_DB(beta_id);
-        double gbase_J = GH_SiO2_polymorph_G(beta_id, T, P, &alpha, &beta);
+        double gbase_J = GH_SiO2_polymorph_G(strcmp(name,"q")==0, T, P, &alpha, &beta);
         return GH_pack_PP_ref(name, len_ox, alpha.Comp, bulk_rock, apo, gbase_J);
     }
 
@@ -488,17 +602,181 @@ PP_ref GH_G_EM_function(   int          EM_database,
        by SB_G_EM_function/TC_G_EM_function, neither of which includes
        hash_init.h directly either)                                        */
     int p_id            = find_EM_id(name);
-    EM_db_gh EM_return   = Access_GH_EM_DB(p_id);
+    EM_db_gh EM_return   = Access_GH_EM_DB(GH_actual_EM_database, p_id);
 
-    /* H2O and CO2 are real supercritical/gas-like fluids at magmatic
-       conditions, not "hypothetical liquids" built from a crystalline
-       reference + fusion the way the oxide components are - MELTS itself
-       gets their standard state from a dedicated real-gas EOS (Pitzer &
-       Sterner 1994), not the Berman-Cp/Kress-volume construction below.
-       gbase_J from GH_pitzer_sterner_G() is already on the same
-       elements-referenced (Berman 1988) scale as every other endmember. */
+    /* H2O and CO2 liquid standard states. NOT GH_pitzer_sterner_G/
+       fluidPhase() - that model is a separate real-gas EOS real gibbs.c
+       only uses for pMELTS' H2O (fixed-9550bar branch, not yet ported)
+       and for gh's own "fl" mixed-fluid solution phase (GH_fluid_eos.c).
+       For xMELTS/rMELTS, real gibbs.c's actual liquid H2O/CO2 branches
+       (MODE_xMELTS/MODE__MELTSandCO2_H2O, ~line 1018/1063) build G from a
+       Robie-type ideal-gas polynomial + a real EOS at a FIXED 1-bar
+       reference (Haar 1984 for H2O via whaar(), Duan 1992 for CO2 via
+       propertiesOfPureCO2()) plus a simple linear-in-(T,P) volume
+       correction (Oaks-Lange for H2O, a Kress-like linear term for CO2) -
+       found 2026-07-15 when live-verifying gh's liq gbase against real
+       MELTS output showed GH_pitzer_sterner_G was never actually right
+       here (off by ~2.7-10.3 kJ for CO2, ~47-50 kJ for H2O, both real,
+       non-constant-offset discrepancies). GH_haar_H2O_G/GH_duan_CO2_G
+       (GH_fluid_eos.c) port the real whaar()/propertiesOfPureCO2()
+       formulas faithfully (verified bit-exact against a standalone
+       harness linked against real xMELTS). phase->h/phase->s in the real
+       formula (the liquid table's own H2O/CO2 "ref" H0/S0) are exactly
+       0 in real xMELTS' own table too (confirmed via the same harness),
+       matching gh's existing all-zero EM_return.H0/S0 for these two -
+       no separate correction term needed for that part.
+       See [[gh-multicalibration-xmelts-rmelts-pmelts]]. */
+    /* Standalone "water" pure phase (gv.PP_list's "H2O" entry, plus
+       toolkit.c's system_aH2O activity calc, both reached via this same
+       name-dispatch since gh's PP list keeps the "H2O" string rather than
+       renaming to real xMELTS' own distinct "water" - see
+       GH_H2O_liquid_context's header comment). Real gibbs.c's own
+       "water" branch (line ~2326) is whaar()-at-actual-P(capped 10000)+
+       wdh78()-above-that-cap for xMELTS/rMELTS - no Robie/Oaks-Lange
+       wrapper (that wrapper is specific to the liquid's own "H2O" branch
+       below). Found missing 2026-07-15 during the 10x10 grid sweep (gh
+       previously used GH_pitzer_sterner_G here unconditionally, off by
+       several kJ) - see [[gh-spn-liq-gbase-verification]].
+
+       pMELTS' own "water" branch: real gibbs.c calls fluidPhase(t,p,x,...)
+       at the ACTUAL pressure (unlike the liquid's own H2O, which uses a
+       fixed 9550 bar reference - see the liquid-context branch below) and
+       explicitly OVERRIDES its own *g output with a *h-t*s* recomputation
+       ("used gH2O for calibration", gibbs.c's own comment) - these two
+       disagree by ~70 kJ (confirmed via a standalone fluidPhase() harness
+       at T=1273.15K/P=5000bar: g=-352.33 kJ vs h-Ts=-422.99 kJ), because
+       the Berman reference-state shifts fluid.c applies to g vs (h,s) are
+       independently calibrated constants, not a thermodynamically
+       consistent triple - shifting g alone does not preserve g=h-Ts once
+       shifted. Fixed 2026-07-16 via GH_pitzer_sterner_H2O_hTs_G
+       (GH_fluid_eos.c), which recovers h-T*s from GH_pitzer_sterner_G's
+       raw g plus fluid.c's own known shift constants, without needing to
+       port fluidPhase()'s full dA/dT machinery - see its header comment
+       for the derivation, verified exact against a real fluidPhase()
+       harness. */
+    if (strcmp(name, "H2O") == 0 && !GH_H2O_liquid_context){
+        double gbase_J;
+        if (GH_actual_EM_database == 2){
+            /* No 10000 bar cap here (unlike the whaar()-based xMELTS/
+               rMELTS branch below) - real gibbs.c's pMELTS "water" branch
+               calls fluidPhase() at the actual p directly, uncapped
+               (confirmed by reading the source: only the whaar() branch
+               has "pHaar = (p<=10000.0)?p:10000.0"). */
+            gbase_J = GH_pitzer_sterner_H2O_hTs_G(T, P);
+        }
+        else {
+            double Pcap = (P <= 10000.0) ? P : 10000.0;
+            gbase_J = GH_haar_H2O_G(T, Pcap);
+            if (P > 10000.0){
+                gbase_J += GH_wdh78_G(T, P);
+            }
+        }
+        return GH_pack_PP_ref(name, len_ox, EM_return.Comp, bulk_rock, apo, gbase_J);
+    }
+
     if (strcmp(name, "H2O") == 0 || strcmp(name, "CO2") == 0){
-        double gbase_J = GH_pitzer_sterner_G(strcmp(name,"H2O")==0, T, P);
+        double gbase_J;
+        if (GH_actual_EM_database == 2 && strcmp(name, "CO2") == 0){
+            /* pMELTS' own liquid table has no real-gas EOS treatment for
+               CO2 - real gibbs.c leaves it as a literal placeholder zero
+               under MODE_pMELTS (verified directly via a standalone
+               gibbs() harness returning exactly G=0.0 for pMELTS "CO2") -
+               a real, confirmed-correct source behavior, not a porting
+               gap. */
+            gbase_J = 0.0;
+        }
+        else if (GH_actual_EM_database == 2){
+            /* pMELTS' own liquid "H2O" branch (real gibbs.c line ~939-956,
+               MODE_pMELTS): calls fluidPhase(t, 9550.0, x=[1,0], ...) at a
+               FIXED 9550 bar reference (NOT the actual P), computing
+               gl=gH2O+r*t*(a/t+b) with a=phase->h/r=0, b=-phase->s/r=0 for
+               gh's all-zero H2O ref data - so THIS branch's own gl is just
+               gH2O (fluidPhase's raw g). BUT gh's H2O liquid-table row also
+               has all-zero Kress dV/dP terms (matching real xMELTS' own
+               table), which means the *downstream*, unconditional
+               Birch-Murnaghan block (gibbs.c ~line 1493) always takes its
+               "dv0dp==0" else-branch for H2O, and THAT branch
+               unconditionally overwrites gl = hl - t*sl using the hl/sl
+               this H2O branch left behind (hl=hH2O, sl=sH2O since a=b=0) -
+               so the FINAL liquid gbase is actually hH2O-T*sH2O, not the
+               raw gH2O. Confirmed 2026-07-16 by direct comparison against
+               a real gibbs() dispatch call (not assumed from reading the
+               H2O branch in isolation, which was my first, wrong attempt
+               at this fix - g and h-Ts differ by ~70kJ here, same root
+               cause as the standalone "water" phase below).
+               GH_pitzer_sterner_H2O_hTs_G (GH_fluid_eos.c) computes this
+               h-T*s value without needing to port fluidPhase()'s dA/dT
+               machinery - see its header comment for the derivation.
+               Fixed 2026-07-16, closing the last pMELTS gap from the
+               10x10 grid sweep - see [[gh-spn-liq-gbase-verification]]. */
+            gbase_J = GH_pitzer_sterner_H2O_hTs_G(T, 9550.0);
+        }
+        else if (strcmp(name, "H2O") == 0){
+            const double r_ = 8.3143;
+            double a = -33676.0 + 2783.6851512128/r_;   /* phase->h = 0 */
+            double b = 18.3527  - 2.3838467967178/r_;   /* phase->s = 0 */
+            double gRobie = r_*T*(2.9147*log(T) - 9.6863e-4*T + 6.8593e-8*T*T
+                                + 77.8899/sqrt(T) - 28954.8/T - 2263.27/(T*T) - 15.8997);
+            const double vOaksLange = 2.775, dvdtOaksLange = 1.086e-3, dvdpOaksLange = -0.382e-4;
+            gbase_J = r_*T*(a/T + b) + GH_haar_H2O_G(T, 1.0) - gRobie
+                    + vOaksLange*(P-1.0) + dvdtOaksLange*(T-1673.15)*(P-1.0)
+                    + 0.5*dvdpOaksLange*(P-1.0)*(P-1.0);
+        }
+        else {
+            const double hCO2 = -630.93193811701, sCO2 = -109.39331414050;
+            const double vCO2 = 4.0157994267547, dvCO2dt = 1.213189e-3, dvCO2dp = -0.4267387e-4;
+            const double pr_ref = 1.0, trl = 1673.0;
+            gbase_J = GH_duan_CO2_G(T) + hCO2 - T*sCO2
+                    + vCO2*(P-pr_ref) + dvCO2dt*(T-trl)*(P-pr_ref)
+                    + dvCO2dp*(P*P/2.0 - pr_ref*pr_ref/2.0 - pr_ref*(P-pr_ref));
+        }
+        return GH_pack_PP_ref(name, len_ox, EM_return.Comp, bulk_rock, apo, gbase_J);
+    }
+
+    /* Liquid SiO2: real gibbs.c gives it its own dedicated, directly-
+       calibrated empirical H0/S0/Cp(T) polynomial (h0_sio2=-901554.0,
+       s0_sio2=48.475, Cp=al+bl*T+cl/T^2+dl/sqrt(T)) integrated straight
+       from Tr, with a glass-transition-like threshold tg_sio2=1480K above
+       which a simpler constant-Cp=81.373 form takes over - NOT the
+       generic solid(beta-cristobalite)+fusion-correction+constant-Cpl
+       construction used below for every other oxide liquid component.
+       Found missing 2026-07-14 while checking gh's liq gbase against
+       real MELTS at a genuinely spinel-stable T/P/bulk: after fixing the
+       separate GH_liq_Trl bug (see below), 10 of 11 oxide endmembers
+       matched to machine precision but SiO2 still showed a real ~0.2 kJ
+       gap - traced to this entirely separate model, confirmed by
+       reproducing gibbs.c's own SiO2 branch by hand and matching real
+       MELTS' computed G to 6 decimal places. Uses the SAME Kress EOS
+       pressure/volume terms (same Vl/kress[] data) as the generic path -
+       only the T-only H0/S0/Cp part differs. See
+       [[gh-spn-liq-gbase-verification]]. */
+    if (strcmp(name, "SiO2") == 0){
+        const double h0_sio2 = -901554.0, s0_sio2 = 48.475;
+        const double al_sio2 = 127.200, bl_sio2 = -10.777e-3, cl_sio2 = 4.3127e5, dl_sio2 = -1463.8;
+        const double tg_sio2 = 1480.0, cp_sio2 = 81.373;
+
+        double hl, sl;
+        if (T >= tg_sio2){
+            hl = h0_sio2 + al_sio2*(tg_sio2-GH_Tr) + bl_sio2*(tg_sio2*tg_sio2-GH_Tr*GH_Tr)/2.0
+               - cl_sio2*(1.0/tg_sio2-1.0/GH_Tr) + 2.0*dl_sio2*(sqrt(tg_sio2)-sqrt(GH_Tr));
+            sl = s0_sio2 + al_sio2*log(tg_sio2/GH_Tr) + bl_sio2*(tg_sio2-GH_Tr)
+               - (cl_sio2/2.0)*(1.0/(tg_sio2*tg_sio2)-1.0/(GH_Tr*GH_Tr)) - 2.0*dl_sio2*(1.0/sqrt(tg_sio2)-1.0/sqrt(GH_Tr));
+            hl += (T-tg_sio2)*cp_sio2;
+            sl += cp_sio2*log(T/tg_sio2);
+        } else {
+            hl = h0_sio2 + al_sio2*(T-GH_Tr) + bl_sio2*(T*T-GH_Tr*GH_Tr)/2.0
+               - cl_sio2*(1.0/T-1.0/GH_Tr) + 2.0*dl_sio2*(sqrt(T)-sqrt(GH_Tr));
+            sl = s0_sio2 + al_sio2*log(T/GH_Tr) + bl_sio2*(T-GH_Tr)
+               - (cl_sio2/2.0)*(1.0/(T*T)-1.0/(GH_Tr*GH_Tr)) - 2.0*dl_sio2*(1.0/sqrt(T)-1.0/sqrt(GH_Tr));
+        }
+
+        const double GH_liq_Trl_sio2 = 1673.0;
+        double dT = T - GH_liq_Trl_sio2, dP = P - GH_Pr;
+        double Vl = EM_return.Vl, dvdt = EM_return.kress[0], dvdp = EM_return.kress[1];
+        double d2vdtp = EM_return.kress[2], d2vdp2 = EM_return.kress[3];
+        double gbase_J = (hl - T*sl) + Vl*dP + dvdt*dT*dP + 0.5*dvdp*dP*dP
+                       + 0.5*d2vdtp*dT*dP*dP + (d2vdp2/6.0)*dP*dP*dP;
+
         return GH_pack_PP_ref(name, len_ox, EM_return.Comp, bulk_rock, apo, gbase_J);
     }
 
@@ -526,15 +804,40 @@ PP_ref GH_G_EM_function(   int          EM_database,
     double G_Pr = H_liq_T - T*S_liq_T;
 
     /* pressure correction: integral of the Kress liquid-volume polynomial
-       V(T,P) = Vl + dvdt*(T-Tr) + dvdp*(P-Pr) + d2vdtp*(T-Tr)*(P-Pr) + 0.5*d2vdp2*(P-Pr)^2
-       from Pr to P, at fixed T                                              */
-    double dT = T - GH_Tr;
+       V(T,P) = Vl + dvdt*(T-Trl) + dvdp*(P-Pr) + d2vdtp*(T-Trl)*(P-Pr) + 0.5*d2vdp2*(P-Pr)^2
+       from Pr to P, at fixed T. Trl=1673.0K is real gibbs.c's own liquid-
+       specific reference temperature for this EOS ("static const double
+       trl = 1673.0;" in gibbs.c) - NOT the general Tr=298.15K used for
+       the Berman solid-state integrals above. Confirmed missing 2026-07-
+       14: found by calling xMELTS' own gibbs() directly (not re-deriving
+       the formula) on each of the 13 liquid endmembers at T=1129.10C/
+       P=2kbar (a real, MELTS-confirmed spinel-stable point) and comparing
+       - every one of the 11 oxide endmembers (all but H2O/CO2, which use
+       a separate Pitzer-Sterner path) was off by 0.04-3.3 kJ, and the
+       predicted magnitude from just this one wrong constant (recomputed
+       standalone with each endmember's own dvdt/d2vdtp) matched every
+       observed diff to <0.001 kJ - see [[gh-spn-liq-gbase-verification]].
+       An earlier, purely algebraic/symbolic check of this same formula
+       (done in an earlier session) verified the *structure* of the 4-term
+       Kress expansion reduces correctly, but never cross-checked that its
+       "Tr" numerically matched gibbs.c's own liquid-specific trl constant
+       - a purely structural check can miss a wrong constant like this. */
+    const double GH_liq_Trl = 1673.0;
+    double dT = T - GH_liq_Trl;
     double dP = P - GH_Pr;
-    double dG_P =  Vl*dP
-                 + dvdt*dT*dP
-                 + 0.5*dvdp*dP*dP
-                 + 0.5*d2vdtp*dT*dP*dP
-                 + (d2vdp2/6.0)*dP*dP*dP;
+    double dG_P;
+    if (GH_actual_EM_database == 2){
+        /* pMELTS: Birch-Murnaghan replaces the Kress pressure integral
+           entirely - see GH_pmelts_liq_BM3_dG's header comment. */
+        dG_P = GH_pmelts_liq_BM3_dG(T, P, Vl, dvdt, dvdp, d2vdtp);
+    }
+    else {
+        dG_P =  Vl*dP
+              + dvdt*dT*dP
+              + 0.5*dvdp*dP*dP
+              + 0.5*d2vdtp*dT*dP*dP
+              + (d2vdp2/6.0)*dP*dP*dP;
+    }
 
     double gbase_J = G_Pr + dG_P;
 

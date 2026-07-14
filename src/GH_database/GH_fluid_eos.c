@@ -222,6 +222,51 @@ double GH_pitzer_sterner_G(int is_H2O, double T, double Pbar){
     return G;
 }
 
+/**
+    Pure-H2O Pitzer-Sterner "h - T*s" recomputation, needed for the two
+    real gibbs.c contexts that use this instead of fluidPhase()'s own raw
+    *g output (pMELTS' standalone "water" phase, gibbs.c ~line 2336's
+    "gH2O = hH2O - t*sH2O", commented there as "used gH2O for calibration";
+    and, less obviously, pMELTS' own LIQUID "H2O" basis species too - gh's own H2O
+    liquid-table row has all-zero Kress dV/dP terms, matching real
+    xMELTS' own table, which means the *downstream*, unconditional
+    Birch-Murnaghan block (gibbs.c ~line 1493) always takes its "no
+    pressure correction" else-branch for H2O specifically, and THAT
+    branch unconditionally recomputes gl = hl - t*sl from whatever hl/sl
+    the H2O-specific branch left behind - so the liquid's own gl ALSO
+    ends up as h-T*s, not the raw g the H2O branch itself computed. Both
+    findings made 2026-07-16 by direct comparison against a real gibbs()
+    dispatch (not assumed from the source alone) - see
+    [[gh-spn-liq-gbase-verification]].
+
+    Derivation (avoids porting fluidPhase()'s full dA/dT machinery):
+    internally, *g=A+p/rh, *h=A+p/rh-t*dAdt, *s=-dAdt satisfy h-t*s=g
+    EXACTLY before fluidPhase()'s own reference-state shift - so the
+    only reason h-T*s differs from g in the FINAL (shifted) output is
+    that fluid.c applies three INDEPENDENT additive shifts to g, h, s
+    (its own calibrated constants, not a thermodynamically consistent
+    triple: shift_g != shift_h - T*shift_s). Since GH_pitzer_sterner_G
+    already returns g_raw+shift_g, this recovers h_shifted-T*s_shifted
+    as g_raw + shift_h - T*shift_s = GH_pitzer_sterner_G(...) +
+    (shift_h-shift_g) - T*shift_s, using fluid.c's own refH2O
+    g/h/s constants (-228538.00/-241816.00/188.72) and its own
+    298.15K/1bar EOS-only baseline values (-46493.8016496949/
+    9430.96281231262/187.572582951064). Verified exact (<0.001 kJ) at
+    two independent (T,P) against real fluidPhase() output directly.
+*/
+double GH_pitzer_sterner_H2O_hTs_G(double T, double Pbar){
+    const double refH2O_g = -228538.00,   baseline_g = -46493.8016496949;
+    const double refH2O_h = -241816.00,   baseline_h =   9430.96281231262;
+    const double refH2O_s =     188.72,   baseline_s =    187.572582951064;
+
+    double shift_g = refH2O_g - baseline_g;
+    double shift_h = refH2O_h - baseline_h;
+    double shift_s = refH2O_s - baseline_s;
+
+    double g_current = GH_pitzer_sterner_G(1, T, Pbar);
+    return g_current + (shift_h - shift_g) - T*shift_s;
+}
+
 /* Cooper (1982) H2O ideal-gas term, factored out of GH_pitzer_sterner_G's
    is_H2O branch above (same formula, unchanged) so GH_pitzer_sterner_mix_G
    below can evaluate it at the mixture's shared density. */
@@ -362,4 +407,409 @@ double GH_pitzer_sterner_mix_G(double x_h2o, double T, double Pbar, double *dGdx
 
     *dGdx_h2o = dGdx;
     return G;
+}
+
+/* ============================================================================
+   Haar (1984) H2O EOS at fixed p=1 bar, ported from water.c's whaar().
+   Value + 1st-rho-derivative only (drops T-derivative and 2nd-rho-
+   derivative bookkeeping only needed for real whaar()'s unused Cp/V
+   outputs). See GH_fluid_eos.h for verification/provenance notes.
+   ============================================================================ */
+static void GH_kubik(double b, double c, double d, double *x1, double *x2, double *x2i, double *x3){
+    double q, p, r, phi3, ff;
+    const double pi = 3.14159263538979;
+    *x2 = 0.0; *x2i = 0.0; *x3 = 0.0;
+    if (c == 0.0 && d == 0.0) { *x1 = -b; return; }
+    q = (2.0*b*b*b/27.0 - b*c/3.0 + d)/2.0;
+    p = (3.0*c - b*b)/9.0;
+    ff = fabs(p);
+    r = sqrt(ff);
+    ff = r*q;
+    if (ff < 0.0) r = -r;
+    ff = q/(r*r*r);
+    if (p > 0.0) {
+        phi3 = log(ff + sqrt(ff*ff+1.0))/3.0;
+        *x1 = -r*(exp(phi3) - exp(-phi3)) - b/3.0;
+        *x2i = 1.0;
+    } else if (q*q + p*p*p > 0.0) {
+        phi3 = log(ff + sqrt(ff*ff-1.0))/3.0;
+        *x1 = -r*(exp(phi3) + exp(-phi3)) - b/3.0;
+        *x2i = 1.0;
+    } else {
+        phi3 = atan(sqrt(1.0-ff*ff)/ff)/3.0;
+        *x1 = -2.0*r*cos(phi3) - b/3.0;
+        *x2 = 2.0*r*cos(pi/3.0-phi3) - b/3.0;
+        *x2i = 0.0;
+        *x3 = 2.0*r*cos(pi/3.0+phi3) - b/3.0;
+    }
+}
+
+static double GH_psat2(double t){
+    double w, wsq, v, ff;
+    int i;
+    static const double a[9] = { 0.0,
+        -7.8889166, 2.5514255, -6.716169, 33.239495,
+        -105.38479, 174.35319, -148.39348, 48.631602
+    };
+    if (t <= 314.0) return exp(6.3573118-8858.843/t + 607.56335/pow(t, 0.6));
+    v = t/647.25;
+    w = fabs(1.0-v);
+    wsq = sqrt(w);
+    ff = 0.0;
+    for(i=1;i<=8;i++) { ff = ff + a[i]*w; w = w*wsq; }
+    return 220.93*exp(ff/v);
+}
+
+double GH_haar_H2O_G(double t, double p){
+    static const double gi[41] = { 0.0,
+        -.53062968529023e4,  .22744901424408e5,  .78779333020687e4,
+        -.69830527374994e3,  .17863832875422e6, -.39514731563338e6,
+         .33803884280753e6, -.13855050202703e6, -.25637436613260e7,
+         .48212575981415e7, -.34183016969660e7,  .12223156417448e7,
+         .11797433655832e8, -.21734810110373e8,  .10829952168620e8,
+        -.25441998064049e7, -.31377774947767e8,  .52911910757704e8,
+        -.13802577177877e8, -.25109914369001e7,  .46561826115608e8,
+        -.72752773275387e8,  .41774246148294e7,  .14016358244614e8,
+        -.31555231392127e8,  .47929666384584e8,  .40912664781209e7,
+        -.13626369388386e8,  .69625220862664e7, -.10834900096447e8,
+        -.22722827401688e7,  .38365486000660e7,  .68833257944332e5,
+         .21757245522644e6, -.26627944829770e5, -.70730418082074e6,
+        -.225e1,            -1.68e1,             .055e1,
+        -93.0e1
+    };
+    static const int ki[41] = { 0,
+        1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5,
+        6, 6, 6, 6, 7, 7, 7, 7, 9, 9, 9, 9, 3, 3, 1, 5, 2, 2, 2, 4
+    };
+    static const int li[41] = { 0,
+        1, 2, 4, 6, 1, 2, 4, 6, 1, 2, 4, 6, 1, 2, 4, 6, 1, 2, 4, 6,
+        1, 2, 4, 6, 1, 2, 4, 6, 1, 2, 4, 6, 0, 3, 3, 3, 0, 2, 0, 0
+    };
+    static const double rhoi[41] = { 0.0,
+        0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0, 0.319, 0.310, 0.310, 1.55
+    };
+    static const double ttti[41] = { 0.0,
+        0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0, 640.0, 640.0, 641.6, 270.0
+    };
+    static const double alpi[41] = { 0.0,
+        0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0, 34.0, 40.0, 30.0, 1050.0
+    };
+    static const double beti[41] = { 0.0,
+        0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0, 2.0e4, 2.0e4, 4.0e4, 25.0
+    };
+    static const double bi[6]  = { 0.7478629, -0.3540782, 0.0, 0.007159876, 0.0, -0.003528426 };
+    static const double bbi[6] = { 1.1278334, -0.5944001, -5.010996, 0.0, 0.63684256, 0.0 };
+    static const double ci[19] = { 0.0,
+        .19730271018e2,      .209662681977e2,   -.483429455355,
+        .605743189245e1,   22.56023885,        -9.87532442,
+       -.43135538513e1,      .458155781,        -.47754901883e-1,
+        .41238460633e-2,    -.27929052852e-3,    .14481695261e-4,
+       -.56473658748e-6,     .16200446e-7,      -.3303822796e-9,
+        .451916067368e-11,  -.370734122708e-13,  .137546068238e-15
+    };
+
+    const double r     = 4.6152;
+    const double gref  = -54955.23970014;
+    const double t0    = 647.073;
+    const double rr    = 8.31441;
+    const double alpha = 11.0;
+    const double beta  = 133.0/3.0;
+    const double gammaC= 7.0/2.0;
+    const double P0    = 1.01325;
+    /* p is now a caller-supplied parameter (was hardcoded to 1.0) - real
+       gibbs.c calls whaar() at TWO different pressures depending on which
+       standard state is being built: the liquid's own H2O basis species
+       always uses the fixed 1-bar reference (matches the original port),
+       while the standalone "water" pure phase (GH_gem_function.c's own
+       "water" branch) calls whaar() at the ACTUAL pressure (capped at
+       10000 bar) - see GH_wdh78_G below for the correction above that cap. */
+
+    double taui[7];
+    int i, count;
+
+    taui[0] = 1.0; taui[1] = t/t0; for(i=2;i<=6;i++) taui[i] = taui[i-1]*taui[1];
+
+    double b  = bi[1]*log(taui[1]) + bi[0] + bi[3]/taui[3] + bi[5]/taui[5];
+    double bb = bbi[0] + bbi[1]/taui[1] + bbi[2]/taui[2] + bbi[4]/taui[4];
+
+    double ps = 220.55;
+    if (t <= 647.25) ps = GH_psat2(t);
+
+    double ark = 1.279186e8 - 2.241415e4 * t;
+    double brk = 1.428062e1 + 6.092237e-4 * t;
+    double oft = ark/(p*sqrt(t));
+    double buk = -10.0*rr*t/p;
+    double cuk = oft - brk*brk + brk*buk;
+    double duk = - brk*oft;
+    double x1, x2, x2i, x3;
+    GH_kubik(buk, cuk, duk, &x1, &x2, &x2i, &x3);
+
+    double vol;
+    if (x2i != 0.0) vol = x1;
+    else            vol = (p < ps) ? fmax(x1, fmax(x2, x3)) : fmin(x1, fmin(x2, x3));
+
+    double rhn = (vol <= 0.0) ? 1.9 : (1.0/vol)*18.0152;
+
+    double dp = DBL_MAX, dr = DBL_MAX, rh = rhn;
+    for (count=1; count<=100 && (dp > 10.0*DBL_EPSILON || dr > 10.0*DBL_EPSILON); count++){
+        double y, ermi[10], prv, dpr;
+        rh = rhn;
+        if (rh <= 0.0) rh = 1.e-8;
+        if (rh >  1.9) rh = 1.9;
+        y = rh*b/4.0;
+        ermi[0] = 1.0; ermi[1] = 1.0-exp(-rh);
+        for (i=2;i<=9;i++) ermi[i] = ermi[i-1]*ermi[1];
+
+        prv = 0.0; dpr = 0.0;
+        for (i=1; i<=36; i++) {
+            prv = prv + gi[i]/taui[li[i]]*ermi[ki[i]-1];
+            dpr = dpr + (2.0+rh*(ki[i]*exp(-rh)-1.0)/ermi[1])*gi[i]/taui[li[i]]*ermi[ki[i]-1];
+        }
+        for(i=37; i<=40; i++) {
+            double del, tau, abc, q10, qm;
+            del = rh/rhoi[i] - 1.0;
+            tau = t/ttti[i]  - 1.0;
+            abc = -alpi[i] * pow(del, (double) ki[i]) - beti[i] * tau*tau;
+            q10 = (abc > -100.00) ? gi[i] * pow(del, (double) li[i]) * exp(abc) : 0.0;
+            qm = li[i]/del - ki[i]*alpi[i]*pow(del, (double) (ki[i]-1));
+            prv = prv + q10*qm*rh*rh/rhoi[i];
+            dpr = dpr + (q10*qm*rh*rh/rhoi[i]) * (2.0/rh+qm/rhoi[i])
+                      - rh*rh/(rhoi[i]*rhoi[i])*q10*
+                        (li[i]/del/del + ki[i]*(ki[i]-1)*alpi[i]*pow(del, (double) (ki[i]-2)));
+        }
+
+        prv = rh*(rh*exp(-rh)*prv + r*t*((1.0 + alpha*y + beta*y*y)/pow(1.0-y,3.0)
+                                + 4.0*y*(bb/b - gammaC)));
+        dpr = rh*exp(-rh)*dpr
+            + r*t*( (1.0 + 2.0*alpha*y + 3.0*beta*y*y)/pow(1.0-y,3.0)
+                   + 3.0*y*(1.0 + alpha*y + beta*y*y)/pow(1.0-y,4.0)
+                   + 2.0*4.0*y*(bb/b - gammaC));
+
+        if (dpr <= 0.0) rhn *= (p <= ps) ? 0.95 : 1.05;
+        else {
+            double x;
+            if (dpr < 0.01) dpr = 0.01;
+            x = (p - prv)/dpr;
+            if (fabs(x) > 0.1) x = 0.1*x/fabs(x);
+            rhn = rh + x;
+        }
+        dp = fabs(1.0 - prv/p);
+        dr = fabs(1.0 - rhn/rh);
+    }
+    rh = rhn;
+
+    /* base function Z, value + rho-derivative only */
+    double y = rh*b/4.0;
+    double dydrh = b/4.0;
+
+    double Z = - log(1.0-y) - (beta-1.0)/(1.0-y)
+             + (alpha+beta+1.0)/(2.0*(1.0-y)*(1.0-y)) + 4*y*(bb/b - gammaC)
+             - (alpha-beta+3.0)/2.0 + log(rh*r*t/P0);
+    double dZdrh = 1.0/rh + 4.0*(bb/b-gammaC)*dydrh + dydrh/(1.0-y)
+             + (alpha+beta+1.0)*dydrh/pow(1.0-y,3.0)
+             - (beta-1.0)*dydrh/pow(1.0-y,2.0);
+
+    double Ab = r*t*Z;
+    double dAbdrh = r*t*dZdrh;
+
+    /* residual function Ar, value + rho-derivative only */
+    double ermi[10];
+    ermi[0] = 1.0; ermi[1] = 1.0-exp(-rh);
+    for (i=2; i<=9; i++) ermi[i] = ermi[i-1]*ermi[1];
+
+    double Ar = 0.0, dArdrh = 0.0;
+    for (i=1; i<=36; i++){
+        Ar     += gi[i]/ki[i]/taui[li[i]]*ermi[ki[i]];
+        dArdrh += gi[i]/taui[li[i]]*ermi[ki[i]-1]*exp(-rh);
+    }
+    for(i=37; i<=40; i++){
+        double del = rh/rhoi[i] - 1.0;
+        double tau = t/ttti[i] - 1.0;
+        double Q = -alpi[i]*pow(del, (double) ki[i]) - beti[i]*tau*tau;
+        double dQdrh = (ki[i] == 0) ? 0.0 : -alpi[i]*ki[i]*pow(del, (double) (ki[i]-1))/rhoi[i];
+        double expQ = (Q > -100.0) ? exp(Q) : 0.0;
+        Ar += gi[i]*pow(del, (double) li[i])*expQ;
+        dArdrh += (li[i] == 0) ? gi[i]*expQ*dQdrh
+                : gi[i]*li[i]*pow(del, (double) (li[i]-1))*expQ/rhoi[i]
+                  + gi[i]*pow(del, (double) li[i])*expQ*dQdrh;
+    }
+
+    /* ideal gas Ai, T-only value (no rho-dependence) */
+    double tr = t/1.0e2;
+    double Zi = 1.0 + (ci[1]/tr + ci[2])*log(tr);
+    for (i=3; i<=18; i++) Zi += ci[i]*pow(tr, (double) (i-6));
+    double Ai = -r*t*Zi;
+
+    double A     = Ab + Ar + Ai;
+    double dAdrh = dAbdrh + dArdrh;
+
+    double pcalc = rh*rh*dAdrh;
+    double gH2O  = A + pcalc/rh;
+
+    gH2O *= 1.80152; /* -> J/mol */
+
+    /* Berman shift, MODE_xMELTS/MODE__MELTS/MODE__MELTSandCO2/MODE__MELTSandCO2_H2O branch (the only one gh needs) */
+    gH2O += -285829.96 - (298.15*69.9146) - gref;
+
+    return gH2O;
+}
+
+/* ============================================================================
+   wdh78 high-pressure correction for water.c's whaar() EOS, ported from
+   water.c's own wdh78() ("Returns difference in thermodynamic properties
+   of water between p,t and 10kb,t"). Real gibbs.c's standalone "water"
+   pure-phase branch calls whaar() at min(P,10000) then, if the ACTUAL
+   pressure exceeds 10000 bar, adds this delta to extend the EOS beyond
+   whaar()'s own reliable range - found missing entirely from gh (which
+   only had the liquid's fixed-1-bar H2O, never the standalone "water"
+   phase) during the 2026-07-15 grid sweep. Value-only port (drops the
+   h/s/cp/v/dvdt/etc: outputs real wdh78() also computes, none needed for
+   a standard-state G).
+   ============================================================================ */
+static double GH_wdh78_poly(double t_celsius, double p_bar){
+    static const double a[5][5] = {
+        { -5.6130073e+04,  3.8101798e-01, -2.1167697e-06,  2.0266445e-11, -8.3225572e-17 },
+        { -1.5285559e+01,  1.3752390e-04, -1.5586868e-09,  6.6329577e-15,  0.0           },
+        { -2.6092451e-02,  3.5988857e-08, -2.7916588e-14,  0.0,            0.0           },
+        {  1.7140501e-05, -1.6860893e-11,  0.0,            0.0,            0.0           },
+        { -6.0126987e-09,  0.0,            0.0,            0.0,            0.0           }
+    };
+    double g = 0.0;
+    for (int j = 0; j < 5; j++){
+        for (int l = 0; l < 5-j; l++){
+            g += a[j][l]*pow(t_celsius, (double) j)*pow(p_bar, (double) l);
+        }
+    }
+    return g;
+}
+
+double GH_wdh78_G(double t, double p){
+    double t_celsius = t - 273.15;
+    double g10kb = GH_wdh78_poly(t_celsius, 10000.0);
+    double g_p   = GH_wdh78_poly(t_celsius, p);
+    return (g_p - g10kb) * 4.184; /* cal -> J, matching real wdh78()'s own *4.184 */
+}
+
+/* ============================================================================
+   Duan (1992) pure-CO2 EOS at fixed p=1 bar, ported from fluidPhase.c's
+   duanCO2Driver()+idealGasCO2(), specialized to the pure endpoint and
+   value-only. See GH_fluid_eos.h for verification/provenance notes.
+   ============================================================================ */
+static const double GH_CO2Tc = 304.1282;
+static const double GH_CO2Pc = 73.773;
+#define GH_CO2Vc (8.314467*GH_CO2Tc/GH_CO2Pc)
+
+static const double GH_CO2La1  =  1.14400435E-01;
+static const double GH_CO2La2  = -9.38526684E-01;
+static const double GH_CO2La3  =  7.21857006E-01;
+static const double GH_CO2La4  =  8.81072902E-03;
+static const double GH_CO2La5  =  6.36473911E-02;
+static const double GH_CO2La6  = -7.70822213E-02;
+static const double GH_CO2La7  =  9.01506064E-04;
+static const double GH_CO2La8  = -6.81834166E-03;
+static const double GH_CO2La9  =  7.32364258E-03;
+static const double GH_CO2La10 = -1.10288237E-04;
+static const double GH_CO2La11 =  1.26524193E-03;
+static const double GH_CO2La12 = -1.49730823E-03;
+static const double GH_CO2La   =  7.81940730E-03;
+static const double GH_CO2Lb   = -4.22918013E+00;
+static const double GH_CO2Lc   =  1.58500000E-01;
+
+/* Berman(1988)-style ideal-gas Cp/H/S polynomial coefficients for CO2,
+   ported from fluidPhase.c's idealCoeff[][CO2] column (index 1)          */
+static const double GH_idealCoeff_CO2[13] = {
+    -1.8188731,       12.903022,       -9.6634864,       4.2251879,
+    -1.0421640,       0.12683515,      -0.0049939675,    2.4950242,
+    -0.82723750,      0.15372481,      -0.015861243,     0.00086017150,
+    -0.000019222165
+};
+
+double GH_duan_CO2_G(double t){
+    const double R_duan = 8.314467;
+    const double p = 1.0; /* fixed reference pressure - matches propertiesOfPureCO2(t, 1.0, ...) call site in real gibbs.c */
+    double CO2Tr = t/GH_CO2Tc;
+
+    double bEnd = GH_CO2La1 + GH_CO2La2/CO2Tr/CO2Tr + GH_CO2La3/CO2Tr/CO2Tr/CO2Tr;
+    double cEnd = GH_CO2La4 + GH_CO2La5/CO2Tr/CO2Tr + GH_CO2La6/CO2Tr/CO2Tr/CO2Tr;
+    double dEnd = GH_CO2La7 + GH_CO2La8/CO2Tr/CO2Tr + GH_CO2La9/CO2Tr/CO2Tr/CO2Tr;
+    double eEnd = GH_CO2La10 + GH_CO2La11/CO2Tr/CO2Tr + GH_CO2La12/CO2Tr/CO2Tr/CO2Tr;
+    double fEnd = GH_CO2La/CO2Tr/CO2Tr/CO2Tr;
+
+    double bv = bEnd*GH_CO2Vc;
+    double cv = cEnd*GH_CO2Vc*GH_CO2Vc;
+    double dv = dEnd*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc;
+    double ev = eEnd*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc;
+    double fv = fEnd*GH_CO2Vc*GH_CO2Vc;
+    double beta = GH_CO2Lb;
+    double gammav = GH_CO2Lc*GH_CO2Vc*GH_CO2Vc;
+
+    double bvPrime = 2.0*bv;
+    double cvPrime = 3.0*cv;
+    double dvPrime = 5.0*dv;
+    double evPrime = 6.0*ev;
+    double fvPrime = 2.0*fv;
+    double betaPrime = beta;
+    double gammavPrime = 3.0*gammav;
+
+    double v, z;
+    int iter = 0;
+    double delv = 1.0, vPrevious = 1.0, delvPrevious = 1.0;
+    v = R_duan*t/p;
+    while (iter < 200) {
+        z = 1.0 + bv/v + cv/v/v + dv/v/v/v/v + ev/v/v/v/v/v + (fv/v/v) * (beta + gammav/v/v) * exp(-gammav/v/v);
+        delv = z*R_duan*t/p - v;
+        if ( ((iter > 1) && (delv*delvPrevious < 0.0)) || (fabs(delv) < v*100.0*DBL_EPSILON) ) break;
+        vPrevious = v;
+        delvPrevious = delv;
+        v = (z*R_duan*t/p + v)/2.0;
+        iter++;
+    }
+    if (fabs(delv) > v*100.0*DBL_EPSILON && iter < 200) {
+        double dx;
+        double rtb = (delv < 0.0) ? (dx = vPrevious-v,v) : (dx = v-vPrevious,vPrevious);
+        iter = 0;
+        while (iter < 200) {
+            v = rtb + (dx *= 0.5);
+            z = 1.0 + bv/v + cv/v/v + dv/v/v/v/v + ev/v/v/v/v/v + (fv/v/v) * (beta + gammav/v/v) * exp(-gammav/v/v);
+            delv = z*R_duan*t/p - v;
+            if (delv <= 0.0) rtb = v;
+            if ( (fabs(dx) < 100.0*DBL_EPSILON) || (delv == 0.0) ) break;
+            iter++;
+        }
+    }
+
+    double lnPhiCO2 = 0.0;
+    lnPhiCO2 += -log(z);
+    lnPhiCO2 += bvPrime/v;
+    lnPhiCO2 += cvPrime/2.0/v/v;
+    lnPhiCO2 += dvPrime/4.0/v/v/v/v;
+    lnPhiCO2 += evPrime/5.0/v/v/v/v/v;
+    lnPhiCO2 += ((fvPrime*beta + betaPrime*fv)/2.0/gammav)*(1.0-exp(-gammav/v/v));
+    lnPhiCO2 += ((fvPrime*gammav+gammavPrime*fv-fv*beta*(gammavPrime-gammav))/2.0/gammav/gammav)
+               *(1.0 - (gammav/v/v + 1.0)*exp(-gammav/v/v));
+    lnPhiCO2 += ((gammavPrime-gammav)*fv/2.0/gammav/gammav)*(-2.0 + (gammav*gammav/v/v/v/v + 2.0*gammav/v/v + 2.0)*exp(-gammav/v/v));
+
+    double phi = exp(lnPhiCO2);
+
+    /* idealGasCO2: h0(t), s0(t) integrated Cp polynomial */
+    double s0=0.0, h0=0.0;
+    int i;
+    for (i=0; i<7; i++) h0 += GH_idealCoeff_CO2[i]*pow(t/1000.0, (double) (i+1))/((double) (i+1));
+    h0 += GH_idealCoeff_CO2[7]*log(t/1000.0);
+    for (i=8; i<13; i++) h0 += GH_idealCoeff_CO2[i]/pow(t/1000.0, (double) (i-7))/((double) (7-i));
+    s0 = GH_idealCoeff_CO2[0]*log(t/1000.0);
+    for (i=1; i<7; i++) s0 += GH_idealCoeff_CO2[i]*pow(t/1000.0, (double) i)/((double) i);
+    for (i=7; i<13; i++) s0 += GH_idealCoeff_CO2[i]/pow(t/1000.0, (double) (i-6))/((double) (6-i));
+    h0 *= 8.31451*1000.0;
+    s0 *= 8.31451;
+    h0 += -385358.2260;
+    s0 +=  210.0304;
+
+    const double R_outer = 8.3143;
+    double g = h0 - t*s0 + R_outer*t*log(phi*p);
+    return g;
 }

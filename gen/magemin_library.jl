@@ -177,8 +177,8 @@ end
 
 const EM_db_gh = EM_db_gh_
 
-function Access_GH_EM_DB(id)
-    ccall((:Access_GH_EM_DB, libMAGEMin), EM_db_gh, (Cint,), id)
+function Access_GH_EM_DB(EM_database, id)
+    ccall((:Access_GH_EM_DB, libMAGEMin), EM_db_gh, (Cint, Cint), EM_database, id)
 end
 
 mutable struct PP_db_gh_
@@ -1839,7 +1839,7 @@ mutable struct gh_datasets
     n_pp::Cint
     n_ss::Cint
     ox::NTuple{13, NTuple{20, Cchar}}
-    PP::NTuple{22, NTuple{20, Cchar}}
+    PP::NTuple{23, NTuple{20, Cchar}}
     SS::NTuple{16, NTuple{20, Cchar}}
     verifyPC::NTuple{16, Cint}
     n_SS_PC::NTuple{16, Cint}
@@ -1865,6 +1865,10 @@ end
 
 function get_bulk_gh(gv)
     ccall((:get_bulk_gh, libMAGEMin), global_variable, (global_variable,), gv)
+end
+
+function get_bulk_pmelts_dataset(gv)
+    ccall((:get_bulk_pmelts_dataset, libMAGEMin), global_variable, (global_variable,), gv)
 end
 
 # typedef SS_ref ( * SS_init_type ) ( SS_ref SS_ref_db , global_variable gv )
@@ -3081,8 +3085,8 @@ function GH_NLopt_opt_init(NLopt_opt, gv)
     ccall((:GH_NLopt_opt_init, libMAGEMin), Cvoid, (Ptr{NLopt_type}, global_variable), NLopt_opt, gv)
 end
 
-function GH_pc_init_function(SS_pc_xeos, iss, name, z_em)
-    ccall((:GH_pc_init_function, libMAGEMin), Cvoid, (Ptr{PC_ref}, Cint, Ptr{Cchar}, Ptr{Cdouble}), SS_pc_xeos, iss, name, z_em)
+function GH_pc_init_function(SS_pc_xeos, iss, name, z_em, EM_database)
+    ccall((:GH_pc_init_function, libMAGEMin), Cvoid, (Ptr{PC_ref}, Cint, Ptr{Cchar}, Ptr{Cdouble}, Cint), SS_pc_xeos, iss, name, z_em, EM_database)
 end
 
 function PGE(z_b, gv, PC_read, SS_objective, NLopt_opt, splx_data, PP_ref_db, SS_ref_db, cp)

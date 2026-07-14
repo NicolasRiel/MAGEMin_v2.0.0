@@ -983,22 +983,20 @@ global_variable SetupDatabase(			global_variable 	 gv,
 
 		gv.EM_dataset = 1;
 
-		/* set-up database acronym here - "gh21" is the first (and
-		   currently only) gh dataset (Ghiorso, 2021); follow this same
-		   if/else-if shape when adding future gh dataset versions, giving
-		   each its own EM_database id within gh's own namespace (0,1,2,...
-		   - gh's EM_database is scoped by research_group everywhere it's
-		   read, including toolkit.c's near-zero-bulk-oxide clip logic in
-		   retrieve_bulk_PT, so it no longer needs to avoid colliding with
-		   tc's/sb's own EM_database ids the way it once did). */
-		if 		(strcmp(gv.db, "gh21") 	== 0){
+		if 		(strcmp(gv.db, "xMELTS") 	== 0){
 			gv.EM_database = 0;
+		}
+		else if (strcmp(gv.db, "rMELTS") 	== 0){
+			gv.EM_database = 1;
+		}
+		else if (strcmp(gv.db, "pMELTS") 	== 0){
+			gv.EM_database = 2;
 		}
 		else {
 			if (gv.verbose == 1){
-				printf(" No or wrong database acronym has been provided, using default Ghiorso, 2021([gh21])\n");
+				printf(" No or wrong database acronym has been provided, using default Ghiorso xMELTS([xMELTS])\n");
 			}
-			strcpy(gv.db, "gh21");
+			strcpy(gv.db, "xMELTS");
 			gv.EM_database = 0;
 		}
 	}

@@ -37,10 +37,20 @@ SS_ref G_SS_gh_liq_init_function(SS_ref SS_ref_db, global_variable gv){
     SS_ref_db.override  = 0;
     SS_ref_db.symmetry  = 1;
     SS_ref_db.n_cat     = 0;
-    SS_ref_db.n_xeos    = 13;
-    SS_ref_db.n_em      = 13;
-    SS_ref_db.n_sf      = 13;
-    SS_ref_db.n_w       = 78;
+    if (gv.EM_database == 2){
+        /* pMELTS: 12 endmembers (CO2 dropped entirely - see
+           GH_init_database.c's gh_db_pmelts_dataset), n_w = C(12,2) = 66. */
+        SS_ref_db.n_xeos    = 12;
+        SS_ref_db.n_em      = 12;
+        SS_ref_db.n_sf      = 12;
+        SS_ref_db.n_w       = 66;
+    }
+    else {
+        SS_ref_db.n_xeos    = 13;
+        SS_ref_db.n_em      = 13;
+        SS_ref_db.n_sf      = 13;
+        SS_ref_db.n_w       = 78;
+    }
 
     return SS_ref_db;
 }
