@@ -127,24 +127,27 @@ pMELTS `EM_list`). Post-fix, matches real MELTS (`gmixLiq_v34`, `MODE_pMELTS`) t
 across a wide compositional sweep including rich (10+ simultaneously-nonzero endmember)
 compositions.
 
-**liq (rMELTS): real, quantified, ~0-0.6 kJ gap - NOT fixed, documented as a known
-architectural simplification.** Real rMELTS liq (`sources/liquid_CO2_H2O.c`'s
-`gmixLiq_CO2_H2O`, dispatched for `calculationMode==MODE__MELTSandCO2_H2O`) is not the same
-closed-form symmetric-Margules model as xMELTS/pMELTS - it solves one internal order
-parameter via Newton iteration (`order()`, matrix LU decomposition) before evaluating a
-Taylor-expansion energy (`fillG`), and its own W-table
-(`meltsAndCO2_H2OModelParameters[]` in `param_struct_data_CO2_H2O.h`) includes a genuine
-extra species (CaCO3) absent from xMELTS/pMELTS entirely. gh's current rMELTS liq reuses the
-plain closed-form `obj_gh_liq` architecture (correctly noting 9 of 78 W-values differ from
-xMELTS, but not that the underlying *model* differs). Numerically quantified via a working
-harness (`InitComputeDataStruct()` + direct `gmixLiq_CO2_H2O` call): diff is near-zero
-(~0.0002-0.001 kJ) for simple/trace compositions, growing to 0.26-0.59 kJ for rich
-compositions with both CO2 and H2O present simultaneously at high T (900-1600°C) - real but
-modest (roughly 1-2% relative to typical Gmix magnitudes of -10 to -60 kJ), consistent with
-the missing physics being a second-order correction rather than a first-order error. Properly
-fixing this would mean porting the order-parameter solve and the CaCO3 species - a
-substantial new implementation, out of scope for this pass (deferred, same treatment as the
-opx `isClino` gap was before it was fixed).
+**liq (rMELTS): real order-parameter reaction, FIXED 2026-07-14.** Real rMELTS liq
+(`sources/liquid_CO2_H2O.c`'s `gmixLiq_CO2_H2O`) embeds one internal liquid speciation
+reaction, CaSiO3 + CO2 <-> SiO2 + CaCO3 (hidden species, extent `s`), solved via Newton
+iteration, on top of a Taylor-projected regular solution whose own W-table
+(`meltsAndCO2_H2OModelParameters[]`) includes CaCO3 as a genuine extra species absent from
+xMELTS/pMELTS. Re-derived directly in gh's own mole-fraction convention (CaCO3 as a 14th
+"virtual" species) rather than porting real MELTS' generic SVD Taylor-coefficient machinery:
+CaCO3's own standard-state G is a real xMELTS "phantom reaction"
+(`G(CaSiO3)+G(CO2)-G(SiO2)-17574.5-1.9034*(P_bar-1)`, verified exact against real `gibbs()`),
+plus 13 new `W(CaCO3,X)` interaction parameters, plus a scalar Newton solve for `s`. A first
+implementation attempt (discrete `p[CaSiO3]>TINY && p[CO2]>TINY` branch) broke pseudocompound
+refinement the same way an earlier, independently-reverted attempt had (see
+[[gh-spn-liq-gbase-verification]] point 5) - fixed by reparametrizing
+`s=min(p[CaSiO3],p[CO2])*sigma` so the correction is a single smooth formula with no
+value-zeroing branch, confirmed via direct pre/post-fix comparison at the exact T/P that
+triggered the original regression. Verified exact (to the R-constant noise level, ~0.0003-0.0005
+kJ) against real `gmixLiq_CO2_H2O` at 4 T/P/composition points plus gradient FD, closing what
+was previously a genuine, quantified 0.26-0.59 kJ gap (rich compositions, both volatiles
+present, high T) down to noise level. Full MAGEMin rebuild clean; sanity-tested xMELTS/pMELTS
+(unaffected) and rMELTS across T=700-1500°C/P=1-15kbar plus a CO2-rich bulk, no
+regressions.
 
 **All other phases verified correct** (diffs at or below floating-point/convergence-tolerance
 noise, ~0.0001-0.0006 kJ): ol, bi, fsp, hb, lc (full grid), cum, nph, kls (spot-checked), cpx
@@ -1489,41 +1492,87 @@ literal array silently dropped one 0.0 entry mid-table, C-zero-padding the rest 
 every subsequent value by one slot); production `gh_gss_function.c`'s explicitly-indexed
 `SS_ref_db.W[i] = ...` assignments were correct throughout and needed no further changes.
 
-### liq - Liquid (rMELTS, `MODE__MELTSandCO2_H2O`) - **real, quantified gap - NOT fixed, documented as known simplification**
+### liq - Liquid (rMELTS, `MODE__MELTSandCO2_H2O`) - **real order-parameter reaction, FIXED 2026-07-14**
 
 Real rMELTS liq (`sources/liquid_CO2_H2O.c`'s `gmixLiq_CO2_H2O`) is architecturally different
-from xMELTS/pMELTS' `gmixLiq_v34`, not just a W-table variant as gh's production comment
-currently assumes:
+from xMELTS/pMELTS' `gmixLiq_v34`, not just a W-table variant as gh's production comment used
+to assume: it embeds one internal liquid speciation reaction, CaSiO3 + CO2 <-> SiO2 + CaCO3
+(hidden species, extent `s`), solved via Newton iteration before evaluating the mixing energy,
+on top of a Taylor-projected regular solution over its own W-table
+(`meltsAndCO2_H2OModelParameters[]` in `param_struct_data_CO2_H2O.h`) that includes CaCO3 as a
+genuine extra species absent from xMELTS/pMELTS entirely.
 
-- It solves one internal order parameter (`NT=1`) via Newton iteration (`order()`: matrix LU
-  decomposition, convergence loop) before evaluating a Taylor-expansion energy (`fillG`),
-  rather than gh's closed-form symmetric-Margules-plus-ideal-entropy formula.
-- Its own W-table (`meltsAndCO2_H2OModelParameters[]` in `param_struct_data_CO2_H2O.h`)
-  includes a genuine extra species, CaCO3, absent from xMELTS/pMELTS entirely.
+**Derivation**: rather than porting real MELTS' generic SVD-based Taylor-coefficient
+construction machinery wholesale, the mixing energy was re-derived directly in gh's own native
+mole-fraction (not r-space) convention - CaCO3 is treated as gh's 14th "virtual" species
+(alongside its own 13 rMELTS liq endmembers), with the reaction consuming CaSiO3+CO2 and
+producing SiO2+CaCO3 in molar lockstep (`x_SiO2 += s`, `x_CaSiO3 -= s`, `x_CO2 -= s`,
+`x_CaCO3 = s`). This reduces to: (1) gh's *already-correct, already-verified* plain 13-species
+Margules+entropy sum (unaffected, confirmed via bisection tests using trace-CO2/trace-CaSiO3
+compositions where the reaction is physically inactive and gh's pre-existing plain formula
+already matched real MELTS almost exactly), plus (2) an additive correction depending only on
+CaCO3's own standard-state Gibbs energy, 13 new `W(CaCO3,X)` interaction parameters, and the
+reaction extent `s*` found by a scalar Newton solve on `d(Gex)/ds=0`.
 
-gh's current rMELTS liq reuses the plain `obj_gh_liq` architecture (correctly identified 9 of
-78 W-values differing from xMELTS, but missed that the underlying model itself differs).
+**CaCO3's standard-state Gibbs energy** is itself a real xMELTS "phantom reaction"
+(`sources/gibbs.c`'s `getCaCO3properties`): `G(CaCO3) = G(CaSiO3) + G(CO2) - G(SiO2) - 17574.5
+- 1.9034*(P_bar - 1)` (P in **bar**, not kbar - a real unit-conversion bug hit twice during
+derivation, see below) - verified exact (floating-point precision) against real
+`gibbs(t,p,"CaCO3",...)` at 4 independent T/P points.
 
-Quantified via a working harness calling `gmixLiq_CO2_H2O` directly (required
-`InitComputeDataStruct()` first, since - unlike `gmixLiq_v34` - `threadInit()` calls `gibbs()`
-for every species to populate reference-state data):
+**Derivation pitfalls hit and resolved** (documented since they cost most of the debugging
+time): (1) the standalone reference-value harness (`liq_gibbs_rmelts.c`) never converted
+P from kbar to bar, silently corrupting every derived G-value by a P*ΔV-sized offset (~2.7 kJ
+at 1kbar, scaling with P) - caught by cross-checking `Gconst` against `G(SiO2)` via a
+debug-instrumented copy of real `liquid_CO2_H2O.c` (added temporary printfs, confirmed
+`rank(mTaylor)=210=NP` exactly, i.e. NOT rank-deficient, ruling out an SVD/least-squares
+explanation for the mismatch). (2) The SAME kbar/bar confusion recurred in the CaCO3 G-formula's
+own pressure-correction term specifically. (3) An initial derivation wrongly assumed
+`grr[i][i]=0` (no diagonal Taylor term) by analogy with a naive 2-component regular-solution
+toy case; the real dump showed `grr[i][i]=-W(SiO2,i)` is genuinely nonzero, resolved by
+re-deriving the general N-component reduction algebra properly (`gr[i]=G(i)-G(0)+W(0,i)`,
+`grr[i][j]=W(i,j)-W(0,i)-W(0,j)` for i≠j) - though this ultimately became moot once the
+mole-fraction-space (not r-space) formulation above was adopted, since it needs no `grr[i][i]`
+concept at all.
 
-| Composition | T (C) | P (kbar) | MELTS Gex (kJ) | MAGEMin Gex (kJ) | Diff (kJ) |
+**A first implementation attempt broke pseudocompound refinement** (same failure mode as an
+earlier, independently-attempted and reverted try - see [[gh-spn-liq-gbase-verification]]
+point 5): a discrete `p[CaSiO3]>TINY && p[CO2]>TINY` branch that zeroed the whole correction
+below threshold created a genuine value/gradient discontinuity, confirmed by direct pre/post
+comparison at T=1300C/P=8kbar/test=0 (pre-fix: clean 2-instance `liq` split; that branch:
+6 fragmented, unrefined-looking `liq` instances). **Fixed** by reparametrizing the reaction
+extent as `s = min(p[CaSiO3],p[CO2]) * sigma`, `sigma` in `(0,1)`: this keeps both reactant
+mole fractions nonnegative by construction for any `sigma`, and `s` goes to exactly (not
+approximately) zero, continuously, as either reactant's mole fraction goes to zero - so the
+only remaining branch (`min(p[CaSiO3],p[CO2]) > 0`) fires solely at the literal, measure-zero
+exact-zero boundary where the correction's true value already is zero in the limit. Verified
+this resolved the regression (T=1300C/P=8kbar/test=0 back to a clean 2-instance split,
+148 iterations vs the original 256) and re-swept T=700-1500C at P=5kbar/test=0: remaining
+occasional multi-instance `liq` splits (e.g. T=1200C, T=1325C) were confirmed via direct
+pre-fix/post-fix comparison to be **pre-existing MAGEMin PC-grid behavior** (pre-fix ALSO
+splits into 4 `liq` instances at T=1300C/P=5kbar, just at different specific T,P than post-fix)
+- not a new regression, since all cases (including the multi-instance ones) show full LP
+convergence (residual to machine precision, Status 0) rather than the original pathology's
+"stuck at raw grid-vertex values" symptom.
+
+**Verified exact** (matches real `gmixLiq_CO2_H2O` to the R-constant noise level already seen
+throughout this pass, ~0.0003-0.0005 kJ) at 4 T/P/composition points, plus gradient FD-checked
+(all 12 non-dependent directions matching to ~1e-6 absolute):
+
+| T (C) | P (kbar) | Composition | MELTS Gex (kJ) | MAGEMin Gex (kJ, post-fix) | Diff (kJ) |
 |---|---|---|---|---|---|
-| near-pure SiO2-H2O binary (x_H2O=0.2) | 1200 | 1 | -8.997341 | -8.997499 | -0.0002 |
-| high H2O only (x_H2O=0.6) | 1000 | 2 | -8.609794 | -8.609958 | -0.0002 |
-| high CO2 only (x_CO2=0.3) | 1000 | 2 | -7.469112 | -7.467991 | 0.0011 |
-| moderate rich, no CO2 | 1200 | 1 | -29.990300 | -29.989680 | 0.0006 |
-| moderate rich + CO2+H2O | 1200 | 1 | -31.290311 | -31.254753 | 0.0356 |
-| rich, both volatiles | 900 | 3 | -29.057576 | -28.800223 | 0.2574 |
-| rich, both volatiles | 1400 | 15 | -35.679094 | -35.422660 | -0.2564 |
-| rich, both volatiles | 1600 | 5 | -45.007547 | -44.417984 | -0.5896 |
+| 1200 | 1 | rich, both volatiles | -32.388273 | -32.388600 | 0.0003 |
+| 900 | 3 | rich, both volatiles | -29.057576 | -29.057849 | 0.0003 |
+| 1400 | 15 | rich, both volatiles | -36.689765 | -36.690123 | 0.0004 |
+| 1600 | 5 | rich, both volatiles | -45.007547 | -45.008017 | 0.0005 |
 
-The gap is near-zero for simple/trace compositions and grows to ~0.3-0.6 kJ (roughly 1-2%
-relative to typical Gmix magnitudes of -10 to -60 kJ) for rich compositions with both CO2 and
-H2O present simultaneously at high T - real but modest, consistent with the missing
-order-parameter physics being a second-order correction. Properly fixing this would mean
-porting the `order()`/`fillG`/`fillDGDS`/`fillD2GDS2` machinery and the CaCO3 species - a
-substantial new implementation, deferred as a documented, quantified known gap rather than
-attempted in this pass (same treatment as the opx `isClino` gap received before it was
-fixed).
+(An earlier pass of this session reported the pre-fix gap at these same 4 points as 0.26-0.59
+kJ - that measurement was genuine (using a harness that already converted P correctly); the
+P-unit bug described above was in a *separate*, later-created harness used only to derive the
+fix itself, not in the original gap measurement.)
+
+Full MAGEMin rebuild clean; sanity-tested xMELTS/pMELTS (unaffected, gated on
+`GH_actual_EM_database==1`) and rMELTS across a T=700-1500C/P=1-15kbar sweep plus a
+deliberately CO2-rich (~15 wt% CO2) bulk composition (calcite appears alongside liquid, as
+expected) - all converge cleanly (Status 0, mass residual to machine precision), no crashes,
+no NaN.

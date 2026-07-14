@@ -45,8 +45,8 @@ gh_dataset gh_db = {
 	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"	,"hb"	,"lc"	,"mel"	,"cum"	,"spn"	,"cpx"	,"opx"	,"fl"	,"rhm"	,"nph"	,"kls"	},
 
 	{1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		}, // allow solvus?
-	{6188	,41		,231	,41		,231	,231	,231	,165	,41		,495	,3003	,3003	,41		,1001	,165	,165	}, // # of pseudocompound
-	{0.1	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.10	,0.10	,0.10	,0.025	,0.10	,0.125	,0.125	}, // discretization step
+	{6188	,41		,231	,41		,231	,231	,231	,165	,41		,495	,3003	,3003	,41		,1820	,165	,165	}, // # of pseudocompound
+	{0.1	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.10	,0.10	,0.10	,0.025	,0.05	,0.125	,0.125	}, // discretization step
 
 	6.0, 						/** max dG under which a phase is considered to be reintroduced  					*/
 	673.15,						/** max temperature above which PGE solver is active 								*/
@@ -73,8 +73,8 @@ gh_dataset gh_db_pmelts_dataset = {
 	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"	,"hb"	,"lc"	,"mel"	,"cum"	,"spn"	,"cpx"	,"opx"	,"rhm"	,"nph"	,"kls"	},
 
 	{1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		}, // allow solvus?
-	{4368	,41		,231	,41		,231	,231	,231	,165	,41		,495	,3003	,3003	,1001	,165	,165	}, // # of pseudocompound
-	{0.2	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.10	,0.10	,0.10	,0.10	,0.125	,0.125	}, // discretization step
+	{4368	,41		,231	,41		,231	,231	,231	,165	,41		,495	,3003	,3003	,1820	,165	,165	}, // # of pseudocompound
+	{0.2	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.10	,0.10	,0.10	,0.05	,0.125	,0.125	}, // discretization step
 
 	6.0, 						/** max dG under which a phase is considered to be reintroduced  					*/
 	673.15,						/** max temperature above which PGE solver is active 								*/

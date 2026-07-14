@@ -1105,7 +1105,7 @@ void ss_min_LP(			global_variable 	 gv,
 			if (liq_synth_active && ph_id == ph_id_liq){
 				act = is_liq_synth_candidate ? 1 : 0;
 			}
-			else if ( strcmp( gv.SS_list[ph_id], "liq") == 0 && gv.n_min[ph_id] > 3){
+			else if ( strcmp( gv.SS_list[ph_id], "liq") == 0 && gv.n_min[ph_id] > gv.n_max_val){
 				act = 0;
 			}
 			else{
@@ -1142,8 +1142,37 @@ void ss_min_LP(			global_variable 	 gv,
 					call to NLopt for non-linear + inequality constraints optimization
 				*/
 				SS_ref_db[ph_id] = (*NLopt_opt[ph_id])(		gv,
-															SS_ref_db[ph_id]		);			
-				/** 
+															SS_ref_db[ph_id]		);
+
+				/**
+					gh only: gh phases use n_xeos==n_em direct p[]=x[] with
+					Sigma(x)=1 enforced only as a soft NLopt equality
+					constraint (no dependent-variable basis reduction like
+					tc/sb use, so they can't need this). If NLopt returns an
+					iterate that doesn't satisfy the constraint well (can
+					happen on abnormal termination, e.g. NLOPT_ROUNDOFF_LIMITED
+					- see [[gh-pseudocompound-validity-bugs]]), project the
+					point back onto the simplex (renormalize) and retry once
+					from there, rather than accepting/discarding a poorly-
+					constrained result outright. Added 2026-07-14 per user
+					request ("force a better satisfaction of the equality
+					constraint") as a proactive complement to the reactive
+					Sigma(p)=1 sf_ok validity check.
+				*/
+				if (strcmp(gv.research_group, "gh") == 0){
+					double sum_x = 0.0;
+					for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
+						sum_x += SS_ref_db[ph_id].xeos[k];
+					}
+					if (fabs(sum_x - 1.0) > 1.0e-6 && sum_x > 0.0){
+						for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
+							SS_ref_db[ph_id].iguess[k] = SS_ref_db[ph_id].xeos[k] / sum_x;
+						}
+						SS_ref_db[ph_id] = (*NLopt_opt[ph_id])(		gv,
+																	SS_ref_db[ph_id]		);
+					}
+				}
+				/**
 					print solution phase informations (print has to occur before saving PC)
 				*/
 			
@@ -1161,17 +1190,30 @@ void ss_min_LP(			global_variable 	 gv,
 															ph_id					);
 				}
 				if (SS_ref_db[ph_id].status == -4){
+					/* NLOPT_ROUNDOFF_LIMITED: NLopt still writes its best feasible
+					   iterate back into .xeos[] on return regardless of status, so
+					   that remains the right array to read here. Fixed 2026-07-14:
+					   this branch used to substitute SS_ref_db[ph_id].p[] instead,
+					   which is NOT the final optimum - each phase's objective
+					   function overwrites .p[] on every internal call (rejected
+					   line-search steps, gradient finite-difference probes, etc.),
+					   so by the time NLopt returns it can hold an arbitrary, often
+					   physically invalid (sum(p) not 1, pinned at boiled-out
+					   epsilon bounds) intermediate trial point instead of the
+					   accepted solution. Confirmed via a real reproduction: rhm
+					   (whose Gex evaluation is numerically stiffer due to its own
+					   internal 3-parameter order Newton solve, so it hits
+					   ROUNDOFF_LIMITED often - 11 times in one single-point solve,
+					   liq 24 times) was retaining these corrupted compositions as
+					   legitimate pseudocompounds, producing spurious near-identical
+					   "solvus" instances with endmember fractions that didn't even
+					   sum to 1. */
 					if (gv.verbose == 1){
 						printf(" Round-off error in the minimization of %4s\n",gv.SS_list[ph_id]);
 					}
-					for (int k = 0; k < cp[i].n_xeos; k++) {
-						cp[i].xeos_1[k] 			 =  SS_ref_db[ph_id].p[k];
-					}
 				}
-				else{
-					for (int k = 0; k < cp[i].n_xeos; k++) {
-						cp[i].xeos_1[k] 			 =  SS_ref_db[ph_id].xeos[k];
-					}
+				for (int k = 0; k < cp[i].n_xeos; k++) {
+					cp[i].xeos_1[k] 			 =  SS_ref_db[ph_id].xeos[k];
 				}
 				/** 
 					Here if the number of phase occurence in the LP matrix is equal to we add 2 pseudocompounds

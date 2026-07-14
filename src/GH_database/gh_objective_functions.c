@@ -16,21 +16,21 @@
     p[i] = x[i] directly (no reduced/rotated basis), with the Sigma(p)=1
     closure enforced by an NLopt equality constrain.
 
-    Does NOT include real xMELTS' one embedded liquid speciation reaction
-    (its NA=19/NS=1 branch's only order parameter: CaSiO3 + CO2 <-> SiO2 +
-    CaCO3(hidden species)) - a deliberate, known gap. Attempted 2026-07-14:
-    the math (order-parameter Newton solve, extended tangent-plane
-    formula) was verified correct by finite differences in isolation, but
-    integrating it into obj_gh_liq caused a real regression in MAGEMin's
-    NLopt-based pseudocompound refinement (many liq candidates got stuck
-    unrefined at their raw PC-grid starting values, likely a gradient
-    non-smoothness right at the s=0/s>0 transition breaking SLSQP) that
-    wasn't resolved in the time available, so the attempt was reverted.
-    See [[gh-spn-liq-gbase-verification]] point 5 for the full derivation
-    and postmortem - worth revisiting with a smoother formulation (e.g. a
-    continuously-differentiable approximation to the boundary transition)
-    rather than the piecewise boundary-check-then-Newton-loop structure
-    tried here.
+    rMELTS only (GH_actual_EM_database==1): also includes real rMELTS'
+    embedded liquid speciation reaction CaSiO3 + CO2 <-> SiO2 + CaCO3
+    (hidden species s), FIXED 2026-07-14 - see [[gh-gexcess-verification]].
+    A first attempt at this same fix (earlier the same day, see
+    [[gh-spn-liq-gbase-verification]] point 5) used a piecewise
+    boundary-check-then-Newton-loop structure that broke SLSQP's line
+    search during pseudocompound refinement (gradient non-smoothness at
+    the s=0/s>0 transition). This version instead solves s via a Newton
+    iteration that is always evaluated (no discrete branch other than a
+    single r9,r13>TINY guard for the genuinely-zero-reactant case, where
+    s->0 continuously anyway), matching real rhyolite-MELTS' own order()
+    Newton solve in structure (not bisection). Derivation verified exactly
+    (to floating-point precision) against real gmixLiq_CO2_H2O across
+    multiple T/P/compositions via a from-scratch harness calling the real
+    compiled library directly.
 */
 #include <math.h>
 #include <string.h>
@@ -62,6 +62,107 @@ static double GH_cpx_SS2 = -1.08018328;
     -0.57977688 instead of cpx's 0.25*cS027 = -1.08018328. See obj_gh_opx's
     header comment. */
 static double GH_opx_SS2 = -0.57977688;
+
+/** rMELTS-only liquid speciation reaction CaSiO3 + CO2 <-> SiO2 + CaCO3
+    (hidden species, extent s). W(CaCO3,X) for gh's own 13 rMELTS liq
+    endmembers (SiO2,TiO2,Al2O3,Fe2O3,MgCr2O4,Fe2SiO4,MnSi0.5O2,Mg2SiO4,
+    CaSiO3,Na2SiO3,KAlSiO4,CO2,H2O in that order - EM_tmp in
+    gh_gss_function.c), extracted directly from real
+    param_struct_data_CO2_H2O.h's self-labeled "W(CaCO3,X)" entries. */
+static const double GH_rmelts_Wcc[13] = {
+     63281.2,  /* SiO2     */
+    -79202.7,  /* TiO2     */
+     46716.1,  /* Al2O3    */
+     65508.7,  /* Fe2O3    */
+         0.0,  /* MgCr2O4  */
+    -72996.8,  /* Fe2SiO4  */
+         0.0,  /* MnSi0.5O2*/
+    -24872.6,  /* Mg2SiO4  */
+     37534.1,  /* CaSiO3   */
+   -311011.3,  /* Na2SiO3  */
+    -27865.0,  /* KAlSiO4  */
+         0.0,  /* CO2      */
+      7873.0   /* H2O      */
+};
+/** CaCO3's own standard-state Gibbs energy is a real xMELTS "phantom
+    reaction" (sources/gibbs.c's getCaCO3properties): CaSiO3 + CO2 - SiO2,
+    plus a small empirical correction (gibbs.c's hCorr/vCorr constants,
+    applied to G only, not S). Verified exact (floating-point precision)
+    against real gibbs(t,p,"CaCO3",...) at 4 independent T/P points. P
+    here must be in BAR (pr=1 bar reference), not kbar - gh's own d->P is
+    in kbar, hence the *1000.0. */
+#define GH_RMELTS_CACO3_HCORR (-17574.497522747)
+#define GH_RMELTS_CACO3_VCORR (-1.9034060173857)
+
+/** Flat-array index of W(i,k), i<k, for gh's fixed 13-endmember rMELTS
+    liq enumeration ("for i: for k=i+1..12: it++") - same convention the
+    main Margules loop below uses, extracted as a formula so the CaCO3
+    correction can look up arbitrary pairs without re-walking the loop. */
+static inline int GH_rmelts_widx(int i, int k){
+    return i*13 - i*(i+1)/2 + (k-i-1);
+}
+
+/** Hex(s) = sum_{i<k,13 endmembers} W(i,k)*x_i(s)*x_k(s)
+           + sum_k W(CaCO3,k)*x_k(s)*s
+    where x_SiO2=p[0]+s, x_CaSiO3=p[8]-s, x_CO2=p[11]-s, all other x_i=p[i]
+    unchanged, and s is CaCO3's own (hidden-species) mole fraction. Exactly
+    quadratic in s since every x_i(s) is affine in s - evaluated directly
+    (not via a hand-simplified closed form) to avoid the repeated algebra
+    mistakes documented in [[gh-gexcess-verification]]'s derivation notes. */
+static double GH_rmelts_Hex(const double *p, const double *W, double s){
+    double xa[13];
+    for (int i = 0; i < 13; i++) xa[i] = p[i];
+    xa[0]  += s;
+    xa[8]  -= s;
+    xa[11] -= s;
+    double Hex = 0.0;
+    for (int i = 0; i < 13; i++){
+        for (int k = i+1; k < 13; k++){
+            Hex += W[GH_rmelts_widx(i,k)]*xa[i]*xa[k];
+        }
+    }
+    for (int k = 0; k < 13; k++){
+        Hex += GH_rmelts_Wcc[k]*xa[k]*s;
+    }
+    return Hex;
+}
+
+/** dHex(s)/dp_j at fixed s (envelope-theorem gradient piece - s* is a
+    stationary point of Gex over s, so the total derivative of the
+    correction w.r.t. p_j equals this explicit partial derivative; no
+    implicit differentiation through s*(p) is needed). */
+static double GH_rmelts_dHexdp(const double *p, const double *W, double s, int j){
+    double xa[13];
+    for (int i = 0; i < 13; i++) xa[i] = p[i];
+    xa[0]  += s;
+    xa[8]  -= s;
+    xa[11] -= s;
+    double dj = 0.0;
+    for (int k = 0; k < 13; k++){
+        if (k == j) continue;
+        double Wjk = (j < k) ? W[GH_rmelts_widx(j,k)] : W[GH_rmelts_widx(k,j)];
+        dj += Wjk*xa[k];
+    }
+    dj += GH_rmelts_Wcc[j]*s;
+    return dj;
+}
+
+/** Ideal configurational entropy (sum x_i*log(x_i)) over gh's 13 basis
+    endmembers PLUS the hidden CaCO3 species (x_CaCO3=s) - real rMELTS'
+    own gmixLiq_CO2_H2O sums entropy over all NE species, not just the
+    NA basis ones, when s>0. Does NOT include the separate H2O-specific
+    extra term (obj_gh_liq's own Sconfig_h2o, unaffected by s). */
+static double GH_rmelts_entropy(const double *p, const double *d_em, double s){
+    double xa[13];
+    for (int i = 0; i < 13; i++) xa[i] = p[i] + d_em[i];
+    xa[0]  += s;
+    xa[8]  -= s;
+    xa[11] -= s;
+    double config = 0.0;
+    for (int i = 0; i < 13; i++) if (xa[i] > 0.0) config += xa[i]*log(xa[i]);
+    if (s > 0.0) config += s*log(s);
+    return config;
+}
 
 double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
     SS_ref *d = (SS_ref *) SS_ref_db;
@@ -129,19 +230,103 @@ double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
        -3.981 kJ observed at x_H2O=0.1, T=1200C) at a pure SiO2-H2O binary
        composition where every other possible source of diff is excluded. */
     double x_h2o = p[n_em-1] + d->d_em[n_em-1];
-    double Sconfig_h2o = R*T*(x_h2o*log(x_h2o) + (1.0-x_h2o)*log(1.0-x_h2o));
-    dSi[n_em-1] += R*T*(log(x_h2o) - log(1.0-x_h2o));
+    /* y*log(y) -> 0 as y -> 0+ (standard convention); guarded because
+       H2O being boiled out of the bulk (d_em[n_em-1]=1) pins x_h2o to
+       exactly 1.0, which would otherwise hit 0*log(0) = NaN in the
+       (1.0-x_h2o) term below - unlike the generic Sconfig loop above,
+       this H2O-specific binary-entropy form isn't protected by the
+       d_em offset trick at BOTH of its own boundaries. */
+    double log_x_h2o   = (x_h2o > 0.0) ? log(x_h2o)       : 0.0;
+    double log_1mx_h2o = (x_h2o < 1.0) ? log(1.0-x_h2o)   : 0.0;
+    double Sconfig_h2o = R*T*(x_h2o*log_x_h2o + (1.0-x_h2o)*log_1mx_h2o);
+    dSi[n_em-1] += R*T*(log_x_h2o - log_1mx_h2o);
+
+    /* rMELTS-only: CaSiO3 + CO2 <-> SiO2 + CaCO3 speciation reaction, see
+       this function's header comment. A first attempt (same day, see
+       [[gh-spn-liq-gbase-verification]] point 5) used a discrete
+       "p[CaSiO3]>TINY && p[CO2]>TINY" value-zeroing branch here and broke
+       SLSQP's line search during pseudocompound refinement (confirmed by
+       direct pre/post-fix comparison at T=1300C/P=8kbar/test=0: pre-fix
+       gives a clean 2-instance liq split, that branch gave 6 fragmented
+       liq instances) - the branch discarded a real, non-negligible
+       correction over a wide range of small-but-nonzero compositions,
+       creating a genuine value/gradient jump at the threshold. Fixed here
+       by reparametrizing s = min(p[CaSiO3],p[CO2]) * sigma, sigma in
+       (0,1): this keeps x_CaSiO3=p[CaSiO3]-s and x_CO2=p[CO2]-s
+       nonnegative BY CONSTRUCTION for any sigma in (0,1) (no separate
+       epsilon-floor needed), and s->0 EXACTLY (not approximately) and
+       CONTINUOUSLY as either reactant's mole fraction ->0, since s is
+       their product's multiple - so the only remaining branch below
+       (fmin(r9,r13) > 0.0) fires solely at the literal, measure-zero
+       exact-zero boundary where the correction's true value already IS
+       zero in the limit, not an approximation of it. */
+    double dGex_rmelts = 0.0;
+    double dSi_rmelts[13] = {0.0};
+    if (GH_actual_EM_database == 1 && n_em == 13){
+        /* d->W[]/GH_rmelts_Wcc[] are raw J (same convention mu_Gex's own
+           /1000.0 conversion already relies on); d->R is kJ-scaled
+           (0.0083144) for direct use against df_raw. This whole block
+           works in J internally (Rgas = d->R*1000.0, matching e.g.
+           obj_gh_fsp's own convention for the same reason) and converts
+           only the final correction back to kJ at the end. */
+        const int iSi = 0, iCa = 8, iCO2 = 11;
+        double Rgas = R*1000.0;
+        double Pbar = d->P*1000.0;
+        double C = GH_RMELTS_CACO3_HCORR + GH_RMELTS_CACO3_VCORR*(Pbar-1.0);
+
+        double r9 = p[iCa], r13 = p[iCO2], x0 = p[iSi];
+        double m = fmin(r9, r13);
+        double s = 0.0;
+
+        if (m > 0.0){
+            double Hex0  = GH_rmelts_Hex(p, d->W,  0.0);
+            double Hex_p = GH_rmelts_Hex(p, d->W,  1.0);
+            double Hex_m = GH_rmelts_Hex(p, d->W, -1.0);
+            double Bcoef = 0.5*(Hex_p - Hex_m);
+            double Dcoef = 0.5*(Hex_p + Hex_m) - Hex0;
+
+            double sigma = 0.5;
+            double lo = 1.0e-14, hi = 1.0 - 1.0e-14;
+            for (int iter = 0; iter < 100; iter++){
+                double sv = m*sigma;
+                double xSi = x0+sv, xCa = r9-sv, xCO2v = r13-sv;
+                double f   = Bcoef + 2.0*Dcoef*sv + Rgas*T*(log(xSi)-log(xCa)-log(xCO2v)+log(sv)) + C;
+                double dfds = 2.0*Dcoef + Rgas*T*(1.0/xSi + 1.0/xCa + 1.0/xCO2v + 1.0/sv);
+                double fp  = dfds*m;   /* df/dsigma = df/ds * ds/dsigma, ds/dsigma = m */
+                double sigma_new = sigma - f/fp;
+                if (!(sigma_new > lo && sigma_new < hi)) sigma_new = 0.5*(sigma + (f > 0.0 ? lo : hi));
+                if (fabs(sigma_new - sigma) < 1.0e-15){ sigma = sigma_new; break; }
+                sigma = sigma_new;
+            }
+            s = m*sigma;
+
+            double Hex_s = Hex0 + Bcoef*s + Dcoef*s*s;
+            double ent_s = GH_rmelts_entropy(p, d->d_em, s);
+            double ent_0 = GH_rmelts_entropy(p, d->d_em, 0.0);
+            dGex_rmelts = ((Hex_s - Hex0) + Rgas*T*(ent_s - ent_0) + s*C) / 1000.0;
+
+            if (grad){
+                double xSi_s = x0+s, xCa_s = r9-s, xCO2_s = r13-s;
+                for (int j = 0; j < 13; j++){
+                    dSi_rmelts[j] = (GH_rmelts_dHexdp(p, d->W, s, j) - GH_rmelts_dHexdp(p, d->W, 0.0, j)) / 1000.0;
+                }
+                dSi_rmelts[iSi]  += R*T*(log(xSi_s)  - log(x0));
+                dSi_rmelts[iCa]  += R*T*(log(xCa_s)  - log(r9));
+                dSi_rmelts[iCO2] += R*T*(log(xCO2_s) - log(r13));
+            }
+        }
+    }
 
     d->df_raw = 0.0;
     for (int i = 0; i < n_em; i++){
         d->df_raw += (mu_Gex[i] + gb[i])*p[i];
     }
-    d->df_raw += Sconfig + Sconfig_h2o;
+    d->df_raw += Sconfig + Sconfig_h2o + dGex_rmelts;
     d->df = d->df_raw * d->factor;
 
     if (grad){
         for (int i = 0; i < n_em; i++){
-            grad[i] = (mu_Gex[i] + gb[i] + dSi[i])*d->factor
+            grad[i] = (mu_Gex[i] + gb[i] + dSi[i] + dSi_rmelts[i])*d->factor
                       - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
         }
     }

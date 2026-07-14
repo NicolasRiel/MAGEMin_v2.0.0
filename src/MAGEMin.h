@@ -115,6 +115,7 @@ typedef struct global_variables {
 
 	/* GENERAL PARAMETERS */
 	int		*n_min;
+	int      n_max_val;
 	int 	 LP;				/** linear programming stage flag	*/
 	int 	 PGE;				/** PGE stage flag				 	*/
 	double   mean_sum_xi;

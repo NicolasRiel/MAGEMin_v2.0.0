@@ -710,6 +710,7 @@ mutable struct global_variables
     lwork::Cint
     work::Ptr{Cdouble}
     n_min::Ptr{Cint}
+    n_max_val::Cint
     LP::Cint
     PGE::Cint
     mean_sum_xi::Cdouble
@@ -1839,7 +1840,7 @@ mutable struct gh_datasets
     n_pp::Cint
     n_ss::Cint
     ox::NTuple{13, NTuple{20, Cchar}}
-    PP::NTuple{23, NTuple{20, Cchar}}
+    PP::NTuple{26, NTuple{20, Cchar}}
     SS::NTuple{16, NTuple{20, Cchar}}
     verifyPC::NTuple{16, Cint}
     n_SS_PC::NTuple{16, Cint}

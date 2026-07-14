@@ -680,6 +680,20 @@ void generate_pseudocompounds(	int 		 		 ss,
 			}
 		}
 
+		/* gh phases only: Sigma(p)=1 sanity check - see the matching check
+		   in PC_function (TC_database/objective_functions.c) for the full
+		   explanation; not needed for tc/sb, whose last endmember is
+		   always the implicit dependent 1-sum(others) variable. */
+		if (SS_ref_db[ss].sf_ok == 1 && strcmp(gv.research_group, "gh") == 0){
+			double sum_p = 0.0;
+			for (int i = 0; i < SS_ref_db[ss].n_em; i++){
+				sum_p += SS_ref_db[ss].p[i];
+			}
+			if (fabs(sum_p - 1.0) > 1.0e-4){
+				SS_ref_db[ss].sf_ok = 0;
+			}
+		}
+
 		/* get composition of solution phase */
 		for (j = 0; j < gv.len_ox; j++){
 			SS_ref_db[ss].ss_comp[j] = 0.0;
