@@ -707,6 +707,11 @@ static void GH_liq_pc_synth(		global_variable 	 gv,
 
 	for (int k = 0; k < n_xeos; k++){ x_star[k] = SS_ref_db[ph_id].xeos[k]; }
 
+
+	// for (int k = 0; k < n_xeos; k++){ 
+	// 	printf("%g \n ",SS_ref_db[ph_id].xeos[k]);
+	// }
+
 	/* G*, g* at x* (single direct, no-NLopt evaluation, raw/un-"boiled-down"
 	   quantities - see GH_liq_eval_raw for why raw rather than df/grad[]) */
 	double G_star = GH_liq_eval_raw(gv, SS_objective, SS_ref_db, ph_id, x_star, g_star);
@@ -814,7 +819,7 @@ static void GH_liq_pc_synth(		global_variable 	 gv,
 				double *x_syn = (pass == 0) ? x_plus : x_minus;
 				for (int k = 0; k < n_xeos; k++){ SS_ref_db[ph_id].iguess[k] = x_syn[k]; }
 
-				SS_ref_db[ph_id] = PC_function(			gv,
+				SS_ref_db[ph_id] = PC_function(				gv,
 															PC_read,
 															SS_ref_db[ph_id],
 															z_b,
@@ -826,6 +831,9 @@ static void GH_liq_pc_synth(		global_variable 	 gv,
 															gv.SS_list[ph_id]		);
 
 				if (SS_ref_db[ph_id].sf_ok == 1){
+					if (gv.verbose == 1){
+						printf("added PC, pass %d",pass);
+					}
 					copy_to_Ppc(							0,
 															1,
 															ph_id,
@@ -833,6 +841,11 @@ static void GH_liq_pc_synth(		global_variable 	 gv,
 
 															SS_objective,
 															SS_ref_db				);
+				}
+				else{
+					if (gv.verbose == 1){
+						printf("failed adding PC, pass %d\n",pass);
+					}
 				}
 			}
 		}
@@ -1031,6 +1044,7 @@ static void TC_liq_pc_synth(		global_variable 	 gv,
 
 															SS_objective,
 															SS_ref_db				);
+															printf(" added PC\n");
 				}
 			}
 		}
@@ -1054,25 +1068,21 @@ void ss_min_LP(			global_variable 	 gv,
 	int 	ph_id;
 	int     pc_check;
 	int 	act;
+	int 	candidate_ok, is_liq_synth_candidate;
 	clock_t u;
 	for (int i = 0; i < gv.len_ss; i++){
 		gv.n_min[i] = 0;
 	}
-
-	/* "liq" redundant-occurrence pseudocompound synthesis, gh and tc (see
-	   docs/liq_pseudocompound_shortcut.md): locate liq's phase index and
-	   decide whether it fires this cycle, and zero the allocation-free
-	   accumulators for the weighted-least-squares Gamma refinement. Gated
-	   on gv.liq_pc_synth_active so it can be fully disabled (legacy
-	   per-occurrence NLopt path) without touching any other logic. */
 	int    is_gh            = (strcmp(gv.research_group, "gh") == 0);
-	int    is_tc             = (strcmp(gv.research_group, "tc") == 0);
+	int    is_tc            = (strcmp(gv.research_group, "tc") == 0);
 	int    ph_id_liq        = -1;
+
 	if (gv.liq_pc_synth_active && (is_gh || is_tc)){
 		for (int iss = 0; iss < gv.len_ss; iss++){
 			if (strcmp(gv.SS_list[iss], "liq") == 0){ ph_id_liq = iss; break; }
 		}
 	}
+
 	/* gv.n_ss_ph[] is only ever written by LP_pc_composite (PGE_function.c),
 	   which is not called anywhere in the ss_min_LP/run_LP path this
 	   database uses - it is always 0 here (confirmed empirically), so N is
@@ -1098,10 +1108,11 @@ void ss_min_LP(			global_variable 	 gv,
 	for (int i = 0; i < gv.len_cp; i++){
 
 		if (cp[i].ss_flags[0] == 1){
-			ph_id = cp[i].id;
+			candidate_ok 	= 1;
+			ph_id 			= cp[i].id;
 
 			// deactivating the next part helps for IGAD database at VHT
-			int is_liq_synth_candidate = (liq_synth_active && ph_id == ph_id_liq && !liq_real_min_found);
+			is_liq_synth_candidate = (liq_synth_active && ph_id == ph_id_liq && !liq_real_min_found);
 			if (liq_synth_active && ph_id == ph_id_liq){
 				act = is_liq_synth_candidate ? 1 : 0;
 			}
@@ -1122,7 +1133,6 @@ void ss_min_LP(			global_variable 	 gv,
 				for (int k = 0; k < cp[i].n_xeos; k++) {
 					SS_ref_db[ph_id].iguess[k] 	= cp[i].xeos[k];
 					cp[i].xeos_0[k] 			= cp[i].xeos[k];
-					// SS_ref_db[ph_id].dguess[k] = cp[i].xeos[k];			//dguess can be used of LP, it is used for PGE to check for drifting
 				}
 
 				/**
@@ -1144,34 +1154,28 @@ void ss_min_LP(			global_variable 	 gv,
 				SS_ref_db[ph_id] = (*NLopt_opt[ph_id])(		gv,
 															SS_ref_db[ph_id]		);
 
-				/**
-					gh only: gh phases use n_xeos==n_em direct p[]=x[] with
-					Sigma(x)=1 enforced only as a soft NLopt equality
-					constraint (no dependent-variable basis reduction like
-					tc/sb use, so they can't need this). If NLopt returns an
-					iterate that doesn't satisfy the constraint well (can
-					happen on abnormal termination, e.g. NLOPT_ROUNDOFF_LIMITED
-					- see [[gh-pseudocompound-validity-bugs]]), project the
-					point back onto the simplex (renormalize) and retry once
-					from there, rather than accepting/discarding a poorly-
-					constrained result outright. Added 2026-07-14 per user
-					request ("force a better satisfaction of the equality
-					constraint") as a proactive complement to the reactive
-					Sigma(p)=1 sf_ok validity check.
-				*/
-				if (strcmp(gv.research_group, "gh") == 0){
-					double sum_x = 0.0;
-					for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
-						sum_x += SS_ref_db[ph_id].xeos[k];
-					}
-					if (fabs(sum_x - 1.0) > 1.0e-6 && sum_x > 0.0){
-						for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
-							SS_ref_db[ph_id].iguess[k] = SS_ref_db[ph_id].xeos[k] / sum_x;
-						}
-						SS_ref_db[ph_id] = (*NLopt_opt[ph_id])(		gv,
-																	SS_ref_db[ph_id]		);
-					}
-				}
+				// if (strcmp(gv.research_group, "gh") == 0){
+				// 	// if (SS_ref_db[ph_id].status != 3){
+				// 	// 	double sum_x = 0.0;
+				// 	// 	for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
+				// 	// 		sum_x += SS_ref_db[ph_id].xeos[k];
+				// 	// 	}
+				// 	// 	if (fabs(sum_x - 1.0) > 1.0e-4 && sum_x > 0.0){
+				// 	// 		for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
+				// 	// 			SS_ref_db[ph_id].iguess[k] = SS_ref_db[ph_id].xeos[k] / sum_x;
+				// 	// 		}
+				// 	// 		SS_ref_db[ph_id] = (*NLopt_opt[ph_id])(		gv,
+				// 	// 													SS_ref_db[ph_id]		);
+				// 	// 	}
+				// 	// }
+
+				// 	if (SS_ref_db[ph_id].status != 3){
+				// 		for (int k = 0; k < cp[i].n_xeos; k++) {
+				// 			SS_ref_db[ph_id].iguess[k] 	= cp[i].xeos[k];
+				// 			cp[i].xeos_0[k] 			= cp[i].xeos[k];
+				// 		}
+				// 	}
+				// }
 				/**
 					print solution phase informations (print has to occur before saving PC)
 				*/
@@ -1180,6 +1184,8 @@ void ss_min_LP(			global_variable 	 gv,
 				SS_ref_db[ph_id].LM_time = ((double)u)/CLOCKS_PER_SEC*1000.0; 
 
 				if (gv.verbose == 1){
+
+					printf(" NLopt status: %d\n", SS_ref_db[ph_id].status);
 					SS_ref_db[ph_id] = SS_UPDATE_function(		gv, 
 																SS_ref_db[ph_id], 
 																z_b, 
@@ -1189,90 +1195,31 @@ void ss_min_LP(			global_variable 	 gv,
 															SS_ref_db[ph_id],
 															ph_id					);
 				}
-				if (SS_ref_db[ph_id].status == -4){
-					/* NLOPT_ROUNDOFF_LIMITED: NLopt still writes its best feasible
-					   iterate back into .xeos[] on return regardless of status, so
-					   that remains the right array to read here. Fixed 2026-07-14:
-					   this branch used to substitute SS_ref_db[ph_id].p[] instead,
-					   which is NOT the final optimum - each phase's objective
-					   function overwrites .p[] on every internal call (rejected
-					   line-search steps, gradient finite-difference probes, etc.),
-					   so by the time NLopt returns it can hold an arbitrary, often
-					   physically invalid (sum(p) not 1, pinned at boiled-out
-					   epsilon bounds) intermediate trial point instead of the
-					   accepted solution. Confirmed via a real reproduction: rhm
-					   (whose Gex evaluation is numerically stiffer due to its own
-					   internal 3-parameter order Newton solve, so it hits
-					   ROUNDOFF_LIMITED often - 11 times in one single-point solve,
-					   liq 24 times) was retaining these corrupted compositions as
-					   legitimate pseudocompounds, producing spurious near-identical
-					   "solvus" instances with endmember fractions that didn't even
-					   sum to 1. */
+
+				if (SS_ref_db[ph_id].status != 3){
+					candidate_ok = 0;
 					if (gv.verbose == 1){
-						printf(" Round-off error in the minimization of %4s\n",gv.SS_list[ph_id]);
+						printf(" Failed minimization of %4s -> code %d\n",gv.SS_list[ph_id], SS_ref_db[ph_id].status);
 					}
 				}
-				for (int k = 0; k < cp[i].n_xeos; k++) {
-					cp[i].xeos_1[k] 			 =  SS_ref_db[ph_id].xeos[k];
-				}
-				/** 
-					Here if the number of phase occurence in the LP matrix is equal to we add 2 pseudocompounds
-				*/
-				// /*
-				// if (gv.n_ss_ph[ph_id] == 1){
-
-				// 	double shift = 0.0;
-				// 	double sh_array[] = {-0.01,0.001,0.001,0.01};
-				// 	for (int add = 0; add < 2; add++){
-				// 		shift = sh_array[add];
-				// 		for (int k = 0; k < cp[i].n_xeos; k++) {
-				// 			SS_ref_db[ph_id].iguess[k]   =  cp[i].xeos_1[k] * (1.0-shift) + cp[i].xeos_0[k] * (shift);
-				// 		}
-
-				// 		SS_ref_db[ph_id] = PC_function(				gv,
-				// 													PC_read,
-				// 													SS_ref_db[ph_id], 
-				// 													z_b,
-				// 													ph_id 		);
-																
-				// 		SS_ref_db[ph_id] = SS_UPDATE_function(		gv, 
-				// 													SS_ref_db[ph_id], 
-				// 													z_b, 
-				// 													gv.SS_list[ph_id]		);
-
-				// 		if (SS_ref_db[ph_id].sf_ok == 1){
-				// 			copy_to_Ppc(							0,
-				// 													1,
-				// 													ph_id,
-				// 													gv,
-
-				// 													SS_objective,
-				// 													SS_ref_db					);	
-				// 		}
-				// 	}
-				// }
-				// */
-
-				for (int k = 0; k < cp[i].n_xeos; k++) {
-					SS_ref_db[ph_id].iguess[k]   =  cp[i].xeos_1[k];
-				}
-				SS_ref_db[ph_id] = PC_function(				gv,
-															PC_read,
-															SS_ref_db[ph_id], 
-															z_b,
-															ph_id 		);
-														
-				SS_ref_db[ph_id] = SS_UPDATE_function(		gv,
-															SS_ref_db[ph_id],
-															z_b,
-															gv.SS_list[ph_id]		);
-
-				int liq_candidate_sf_ok = SS_ref_db[ph_id].sf_ok;
 
 				/**
 					add minimized phase to LP PGE pseudocompound list
 				*/
 				if (SS_ref_db[ph_id].sf_ok == 1){
+					for (int k = 0; k < cp[i].n_xeos; k++) {
+						SS_ref_db[ph_id].iguess[k]   =  SS_ref_db[ph_id].xeos[k];
+					}
+					SS_ref_db[ph_id] = PC_function(				gv,
+																PC_read,
+																SS_ref_db[ph_id], 
+																z_b,
+																ph_id 		);
+															
+					SS_ref_db[ph_id] = SS_UPDATE_function(		gv,
+																SS_ref_db[ph_id],
+																z_b,
+																gv.SS_list[ph_id]		);
 					copy_to_Ppc(							pc_check,
 															1,
 															ph_id,
@@ -1281,34 +1228,9 @@ void ss_min_LP(			global_variable 	 gv,
 															SS_objective,
 															SS_ref_db					);	
 				}
-				else{
-					for (int k = 0; k < cp[i].n_xeos; k++) {
-						SS_ref_db[ph_id].iguess[k]   =  cp[i].xeos_0[k];
-					}
-					
-					SS_ref_db[ph_id] = PC_function(				gv,
-																PC_read,
-																SS_ref_db[ph_id], 
-																z_b,
-																ph_id 		);
-															
-					SS_ref_db[ph_id] = SS_UPDATE_function(		gv, 
-																SS_ref_db[ph_id], 
-																z_b, 
-																gv.SS_list[ph_id]		);
-
-					copy_to_Ppc(								0,
-																1,
-																ph_id,
-																gv,
-
-																SS_objective,
-																SS_ref_db					);	
-			
-				}
 
 
-				if (is_liq_synth_candidate && liq_candidate_sf_ok == 1){
+				if (is_liq_synth_candidate && candidate_ok == 1){
 					liq_real_min_found = 1;
 				}
 

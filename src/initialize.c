@@ -216,7 +216,7 @@ global_variable global_variable_alloc( bulk_info  *z_b ){
 	gv.liq_pc_synth_active			= 1;			/** 1: composite method active; 0: fully disabled, legacy per-occurrence NLopt path 	*/
 	gv.gh_liq_pc_synth_h			= 1e-2;			/** base xeos step size for the synthetic pseudocompound spread - actual step used
 													    is this * sqrt(gv.gamma_norm[.]), clamped to [1e-6, 1e-2] (see GH_liq_pc_synth_step) */
-	gv.gh_liq_pc_synth_threshold	= 4;			/** n_ss_ph[liq] above which the composite (1 real solve + synthesis) method fires 	*/
+	gv.gh_liq_pc_synth_threshold	= 2;			/** n_ss_ph[liq] above which the composite (1 real solve + synthesis) method fires 	*/
 
 	/* set of parameters to record the evolution of the norm of the mass constraint */
 	gv.it_1             = 128;                  /** first critical iteration                                                        */

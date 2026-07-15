@@ -208,7 +208,7 @@ double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double dSi[13];
     for (int i = 0; i < n_em; i++){
         Sconfig += p[i]*creal(clog(p[i] + d->d_em[i]));
-        dSi[i]   = R*T*(creal(clog(p[i] + d->d_em[i]))+1.0);
+        dSi[i]   = R*T*(creal(clog(p[i] + d->d_em[i])));//+1.0);
     }
     Sconfig *= R*T;
 
@@ -237,8 +237,12 @@ double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
        (1.0-x_h2o) term below - unlike the generic Sconfig loop above,
        this H2O-specific binary-entropy form isn't protected by the
        d_em offset trick at BOTH of its own boundaries. */
-    double log_x_h2o   = (x_h2o > 0.0) ? creal(clog(x_h2o))       : 0.0;
-    double log_1mx_h2o = (x_h2o < 1.0) ? creal(clog(1.0-x_h2o))   : 0.0;
+    // double log_x_h2o   = (x_h2o > 0.0) ? creal(clog(x_h2o))       : 0.0;
+    // double log_1mx_h2o = (x_h2o < 1.0) ? creal(clog(1.0-x_h2o))   : 0.0;
+
+    double log_x_h2o   = creal(clog(x_h2o));
+    double log_1mx_h2o = creal(clog(1.0-x_h2o));
+
     double Sconfig_h2o = R*T*(x_h2o*log_x_h2o + (1.0-x_h2o)*log_1mx_h2o);
     dSi[n_em-1] += R*T*(log_x_h2o - log_1mx_h2o);
 
@@ -318,17 +322,21 @@ double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
         }
     }
 
+    double test_sum = 0.0;
+
     d->df_raw = 0.0;
     for (int i = 0; i < n_em; i++){
         d->df_raw += (mu_Gex[i] + gb[i])*p[i];
+
+        test_sum += (mu_Gex[i] + gb[i] + dSi[i] + dSi_rmelts[i])*p[i];
     }
+
     d->df_raw += Sconfig + Sconfig_h2o + dGex_rmelts;
     d->df = d->df_raw * d->factor;
 
     if (grad){
         for (int i = 0; i < n_em; i++){
-            grad[i] = (mu_Gex[i] + gb[i] + dSi[i] + dSi_rmelts[i])*d->factor
-                      - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
+            grad[i] = (mu_Gex[i] + gb[i] + dSi[i] + dSi_rmelts[i])*d->factor - (d->df_raw*d->factor*(d->ape[i]/d->sum_apep));
         }
     }
 
@@ -399,8 +407,8 @@ double obj_gh_ol(unsigned n, const double *x, double *grad, void *SS_ref_db){
     d->df = d->df_raw * d->factor;
 
     if (grad){
-        double dS0 = 2.0*R*T*(creal(clog(p[0] + d->d_em[0]))+1.0);
-        double dS1 = 2.0*R*T*(creal(clog(p[1] + d->d_em[1]))+1.0);
+        double dS0 = 2.0*R*T*(creal(clog(p[0] + d->d_em[0])));//+1.0);
+        double dS1 = 2.0*R*T*(creal(clog(p[1] + d->d_em[1])));//+1.0);
         grad[0] = (dS0 + mu_Gex[0] + gb[0])*d->factor - (d->df_raw*d->factor*(d->ape[0]/d->sum_apep));
         grad[1] = (dS1 + mu_Gex[1] + gb[1])*d->factor - (d->df_raw*d->factor*(d->ape[1]/d->sum_apep));
     }
@@ -509,8 +517,8 @@ double obj_gh_bi(unsigned n, const double *x, double *grad, void *SS_ref_db){
     d->df = d->df_raw * d->factor;
 
     if (grad){
-        double dS0 = R*T*(creal(clog(p[0] + d->d_em[0]))+1.0);
-        double dS1 = R*T*(creal(clog(p[1] + d->d_em[1]))+1.0);
+        double dS0 = R*T*(creal(clog(p[0] + d->d_em[0])));//+1.0);
+        double dS1 = R*T*(creal(clog(p[1] + d->d_em[1])));//+1.0);
         grad[0] = (dS0 + mu_Gex[0] + gb[0])*d->factor - (d->df_raw*d->factor*(d->ape[0]/d->sum_apep));
         grad[1] = (dS1 + mu_Gex[1] + gb[1])*d->factor - (d->df_raw*d->factor*(d->ape[1]/d->sum_apep));
     }
@@ -603,7 +611,7 @@ double obj_gh_fsp(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double dSi[3];
     for (int i = 0; i < 3; i++){
         Sconfig += p[i]*creal(clog(p[i] + d->d_em[i]));
-        dSi[i]   = R*T*(creal(clog(p[i] + d->d_em[i]))+1.0);
+        dSi[i]   = R*T*(creal(clog(p[i] + d->d_em[i])));//+1.0);
     }
     Sconfig *= R*T;
 
@@ -696,7 +704,7 @@ double obj_gh_g(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double dSi[3];
     for (int i = 0; i < 3; i++){
         Sconfig += p[i]*creal(clog(p[i] + d->d_em[i]));
-        dSi[i]   = 3.0*R*T*(creal(clog(p[i] + d->d_em[i]))+1.0);
+        dSi[i]   = 3.0*R*T*(creal(clog(p[i] + d->d_em[i])));//+1.0);
     }
     Sconfig *= 3.0*R*T;
 
@@ -1053,18 +1061,18 @@ double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db){
        dGex[0] is no longer 0: Gex genuinely depends on p[0] through the
        entropy term. Verified against central finite differences (see
        scratchpad verify_mel_grad.c). */
-    double dGdr0 = Rgas*T*(creal(clog(xAl3T1))+creal(clog(xAl3T2))-creal(clog(xSi4T2))+1.0)
+    double dGdr0 = Rgas*T*(creal(clog(xAl3T1))+creal(clog(xAl3T2))-creal(clog(xSi4T2))/*+1.0*/)
                  + W12*(1.0-2.0*r0) + (W22p-W12p+W12)*s
                  + (W23-W12-W13)*r1 + (W24-W14-W12)*r2;
-    double dGdr1 = Rgas*T*(creal(clog(xFe2T1))+1.0)
+    double dGdr1 = Rgas*T*(creal(clog(xFe2T1))/*+1.0*/)
                  + W13*(1.0-2.0*r1) + (W23-W12-W13)*r0
                  + (W2p3-W23-W12p+W12)*s + (W34-W14-W13)*r2;
-    double dGdr2 = Rgas*T*(-2.0*creal(clog(xCaOct))+2.0*creal(clog(xNaOct))+creal(clog(xSi4T1))+1.0)
+    double dGdr2 = Rgas*T*(-2.0*creal(clog(xCaOct))+2.0*creal(clog(xNaOct))+creal(clog(xSi4T1))/*+1.0*/)
                  + W14*(1.0-2.0*r2) + (W24-W14-W12)*r0
                  + (W34-W14-W13)*r1 + (W2p4-W24-W12p+W12)*s;
 
     double dGex[4];
-    dGex[0] = Rgas*T*(creal(clog(xMg2T1))+1.0);
+    dGex[0] = Rgas*T*(creal(clog(xMg2T1)));//+1.0);
     dGex[1] = dGdr0 - geh_G;   /* -d(ENDMEMBERS)/dp[1], geh's own correction */
     dGex[2] = dGdr1;
     dGex[3] = dGdr2;

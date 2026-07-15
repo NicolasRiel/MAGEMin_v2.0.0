@@ -18260,26 +18260,13 @@ SS_ref PC_function(		global_variable 	 gv,
 		}
 	}
 
-	/* gh phases use n_xeos==n_em direct p[]=x[] with Sigma(p)=1 enforced only
-	   as a soft NLopt equality constraint (no dependent/n_em-1 basis
-	   reduction like tc/sb use). A non-SUCCESS NLopt return (e.g.
-	   NLOPT_ROUNDOFF_LIMITED) can hand back an iterate where every p[i] is
-	   individually within its own box bound but the SUM is not close to 1
-	   (each component independently pinned at whatever bound its invalid
-	   search direction pushed it to). The per-component sf[] check above
-	   can't catch this - it only checks bounds, never the sum. Found
-	   2026-07-14 via a real reproduction: rhm (gei/hem/ilm/pyr/crn)
-	   retaining pseudocompounds like {0.9999999,0.9999999,0.9999999,
-	   0.0000001,0.9999999} (sum~4) as if valid, producing spurious
-	   near-identical "solvus" instances. tc/sb phases don't need this
-	   check - their last endmember is always the implicit 1-sum(others)
-	   dependent variable, so they can't violate Sigma(p)=1 this way. */
+    /* Check if equality constraint on endmember fraction is respected for gh group */
 	if (SS_ref_db.sf_ok == 1 && strcmp(gv.research_group, "gh") == 0){
 		double sum_p = 0.0;
 		for (int i = 0; i < SS_ref_db.n_em; i++){
 			sum_p += SS_ref_db.p[i];
 		}
-		if (fabs(sum_p - 1.0) > 1.0e-4){
+		if (fabs(sum_p - 1.0) > 1.0e-6){
 			SS_ref_db.sf_ok = 0;
 		}
 	}

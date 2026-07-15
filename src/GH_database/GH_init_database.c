@@ -45,8 +45,8 @@ gh_dataset gh_db = {
 	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"	,"hb"	,"lc"	,"mel"	,"cum"	,"spn"	,"cpx"	,"opx"	,"fl"	,"rhm"	,"nph"	,"kls"	},
 
 	{1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		}, // allow solvus?
-	{6188	,41		,231	,41		,231	,231	,231	,165	,41		,1001	,3003	,3003	,41		,1820	,165	,165	}, // # of pseudocompound
-	{0.1	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.05	,0.10	,0.10	,0.025	,0.05	,0.125	,0.125	}, // discretization step
+	{1820	,41		,231	,41		,231	,231	,231	,165	,41		,1001	,3003	,3003	,41		,1820	,165	,165	}, // # of pseudocompound
+	{0.15	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.05	,0.10	,0.10	,0.025	,0.05	,0.125	,0.125	}, // discretization step
 
 	6.0, 						/** max dG under which a phase is considered to be reintroduced  					*/
 	673.15,						/** max temperature above which PGE solver is active 								*/
@@ -74,7 +74,7 @@ gh_dataset gh_db_pmelts_dataset = {
 
 	{1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		}, // allow solvus?
 	{4368	,41		,231	,41		,231	,231	,231	,165	,41		,1001	,3003	,3003	,1820	,165	,165	}, // # of pseudocompound
-	{0.2	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.05	,0.10	,0.10	,0.05	,0.125	,0.125	}, // discretization step
+	{0.15	,0.025	,0.05	,0.05	,0.05	,0.05	,0.05	,0.10	,0.025	,0.05	,0.10	,0.10	,0.05	,0.125	,0.125	}, // discretization step
 
 	6.0, 						/** max dG under which a phase is considered to be reintroduced  					*/
 	673.15,						/** max temperature above which PGE solver is active 								*/
@@ -325,7 +325,7 @@ global_variable get_bulk_gh( global_variable gv) {
         gv.bulk_rock[7]  = 0.16;    /** TiO2  */
         gv.bulk_rock[8]  = 0.39;    /** O     */
         gv.bulk_rock[9]  = 0.04;    /** MnO   */
-        gv.bulk_rock[10] = 0.004;   /** Cr2O3 */
+        gv.bulk_rock[10] = 0.4;   /** Cr2O3 */
         gv.bulk_rock[11] = 5.18;    /** H2O   */
         gv.bulk_rock[12] = 0.14;    /** CO2   */
     }
