@@ -21,6 +21,7 @@
 # n_em per gh solution phase - keep in sync with gh_gss_init_function.c's
 # n_em assignments (liq=13, ol=2, fsp=3, bi=2, g=3, hb=3, lc=3, mel=4, cum=2,
 # spn=5, cpx=7, opx=7 (shares cpx's grid), fl=2).
+
 const GH_N_EM = Dict(
     "liq" => 13,
     "ol"  => 2,
@@ -95,7 +96,7 @@ SS_xeos_PC_gh.c's existing convention, e.g.:
         ...
     };
 """
-function generate_gh_pseudocompounds(ph_name::String, step_size::Float64; eps::Float64 = 1e-4)
+function generate_gh_pseudocompounds(ph_name::String, step_size::Float64; eps::Float64 = 1e-2)
     haskey(GH_N_EM, ph_name) ||
         error("unknown gh phase \"$ph_name\" - add it to GH_N_EM first (known: $(join(sort(collect(keys(GH_N_EM))), ", ")))")
     n_em = GH_N_EM[ph_name]
@@ -115,15 +116,18 @@ function generate_gh_pseudocompounds(ph_name::String, step_size::Float64; eps::F
     return out
 end
 
-if abspath(PROGRAM_FILE) == @__FILE__
-    if length(ARGS) < 2
-        println("usage: julia generate_pseudocompounds.jl <ph_name> <step_size>")
-        println("known phases: ", join(sort(collect(keys(GH_N_EM))), ", "))
-        exit(1)
-    end
-    ph_name   = ARGS[1]
-    step_size = parse(Float64, ARGS[2])
-    print(generate_gh_pseudocompounds(ph_name, step_size))
-end
+# if abspath(PROGRAM_FILE) == @__FILE__
+#     if length(ARGS) < 2
+#         println("usage: julia generate_pseudocompounds.jl <ph_name> <step_size>")
+#         println("known phases: ", join(sort(collect(keys(GH_N_EM))), ", "))
+#         exit(1)
+#     end
+#     ph_name   = ARGS[1]
+#     step_size = parse(Float64, ARGS[2])
+#     print(generate_gh_pseudocompounds(ph_name, step_size))
+# end
 
-#write("gh_ol_pc_0.025.txt", out)
+# out = generate_gh_pseudocompounds("spn", 1/10.0)
+
+out = generate_gh_pseudocompounds("liq", 1/4.0;eps=1e-2)
+write("gh_liq_v2_pc_0.25.txt", out)

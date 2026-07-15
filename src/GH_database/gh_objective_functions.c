@@ -33,6 +33,7 @@
     compiled library directly.
 */
 #include <math.h>
+#include <complex.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -159,8 +160,8 @@ static double GH_rmelts_entropy(const double *p, const double *d_em, double s){
     xa[8]  -= s;
     xa[11] -= s;
     double config = 0.0;
-    for (int i = 0; i < 13; i++) if (xa[i] > 0.0) config += xa[i]*log(xa[i]);
-    if (s > 0.0) config += s*log(s);
+    for (int i = 0; i < 13; i++) if (xa[i] > 0.0) config += xa[i]*creal(clog(xa[i]));
+    if (s > 0.0) config += s*creal(clog(s));
     return config;
 }
 
@@ -206,8 +207,8 @@ double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double Sconfig = 0.0;
     double dSi[13];
     for (int i = 0; i < n_em; i++){
-        Sconfig += p[i]*log(p[i] + d->d_em[i]);
-        dSi[i]   = R*T*(log(p[i] + d->d_em[i])+1.0);
+        Sconfig += p[i]*creal(clog(p[i] + d->d_em[i]));
+        dSi[i]   = R*T*(creal(clog(p[i] + d->d_em[i]))+1.0);
     }
     Sconfig *= R*T;
 
@@ -236,8 +237,8 @@ double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
        (1.0-x_h2o) term below - unlike the generic Sconfig loop above,
        this H2O-specific binary-entropy form isn't protected by the
        d_em offset trick at BOTH of its own boundaries. */
-    double log_x_h2o   = (x_h2o > 0.0) ? log(x_h2o)       : 0.0;
-    double log_1mx_h2o = (x_h2o < 1.0) ? log(1.0-x_h2o)   : 0.0;
+    double log_x_h2o   = (x_h2o > 0.0) ? creal(clog(x_h2o))       : 0.0;
+    double log_1mx_h2o = (x_h2o < 1.0) ? creal(clog(1.0-x_h2o))   : 0.0;
     double Sconfig_h2o = R*T*(x_h2o*log_x_h2o + (1.0-x_h2o)*log_1mx_h2o);
     dSi[n_em-1] += R*T*(log_x_h2o - log_1mx_h2o);
 
@@ -290,7 +291,7 @@ double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
             for (int iter = 0; iter < 100; iter++){
                 double sv = m*sigma;
                 double xSi = x0+sv, xCa = r9-sv, xCO2v = r13-sv;
-                double f   = Bcoef + 2.0*Dcoef*sv + Rgas*T*(log(xSi)-log(xCa)-log(xCO2v)+log(sv)) + C;
+                double f   = Bcoef + 2.0*Dcoef*sv + Rgas*T*(creal(clog(xSi))-creal(clog(xCa))-creal(clog(xCO2v))+creal(clog(sv))) + C;
                 double dfds = 2.0*Dcoef + Rgas*T*(1.0/xSi + 1.0/xCa + 1.0/xCO2v + 1.0/sv);
                 double fp  = dfds*m;   /* df/dsigma = df/ds * ds/dsigma, ds/dsigma = m */
                 double sigma_new = sigma - f/fp;
@@ -310,9 +311,9 @@ double obj_gh_liq(unsigned n, const double *x, double *grad, void *SS_ref_db){
                 for (int j = 0; j < 13; j++){
                     dSi_rmelts[j] = (GH_rmelts_dHexdp(p, d->W, s, j) - GH_rmelts_dHexdp(p, d->W, 0.0, j)) / 1000.0;
                 }
-                dSi_rmelts[iSi]  += R*T*(log(xSi_s)  - log(x0));
-                dSi_rmelts[iCa]  += R*T*(log(xCa_s)  - log(r9));
-                dSi_rmelts[iCO2] += R*T*(log(xCO2_s) - log(r13));
+                dSi_rmelts[iSi]  += R*T*(creal(clog(xSi_s))  - creal(clog(x0)));
+                dSi_rmelts[iCa]  += R*T*(creal(clog(xCa_s))  - creal(clog(r9)));
+                dSi_rmelts[iCO2] += R*T*(creal(clog(xCO2_s)) - creal(clog(r13)));
             }
         }
     }
@@ -388,7 +389,7 @@ double obj_gh_ol(unsigned n, const double *x, double *grad, void *SS_ref_db){
     d->factor = d->fbc/d->sum_apep;
 
     /* unconditional log() - see obj_gh_liq's header comment */
-    double Sconfig = 2.0*R*T*(p[0]*log(p[0] + d->d_em[0]) + p[1]*log(p[1] + d->d_em[1]));
+    double Sconfig = 2.0*R*T*(p[0]*creal(clog(p[0] + d->d_em[0])) + p[1]*creal(clog(p[1] + d->d_em[1])));
 
     d->df_raw = 0.0;
     for (int i = 0; i < n_em; i++){
@@ -398,8 +399,8 @@ double obj_gh_ol(unsigned n, const double *x, double *grad, void *SS_ref_db){
     d->df = d->df_raw * d->factor;
 
     if (grad){
-        double dS0 = 2.0*R*T*(log(p[0] + d->d_em[0])+1.0);
-        double dS1 = 2.0*R*T*(log(p[1] + d->d_em[1])+1.0);
+        double dS0 = 2.0*R*T*(creal(clog(p[0] + d->d_em[0]))+1.0);
+        double dS1 = 2.0*R*T*(creal(clog(p[1] + d->d_em[1]))+1.0);
         grad[0] = (dS0 + mu_Gex[0] + gb[0])*d->factor - (d->df_raw*d->factor*(d->ape[0]/d->sum_apep));
         grad[1] = (dS1 + mu_Gex[1] + gb[1])*d->factor - (d->df_raw*d->factor*(d->ape[1]/d->sum_apep));
     }
@@ -498,7 +499,7 @@ double obj_gh_bi(unsigned n, const double *x, double *grad, void *SS_ref_db){
     d->factor = d->fbc/d->sum_apep;
 
     /* unconditional log() - see obj_gh_liq's header comment */
-    double Sconfig = R*T*(p[0]*log(p[0] + d->d_em[0]) + p[1]*log(p[1] + d->d_em[1]));
+    double Sconfig = R*T*(p[0]*creal(clog(p[0] + d->d_em[0])) + p[1]*creal(clog(p[1] + d->d_em[1])));
 
     d->df_raw = 0.0;
     for (int i = 0; i < n_em; i++){
@@ -508,8 +509,8 @@ double obj_gh_bi(unsigned n, const double *x, double *grad, void *SS_ref_db){
     d->df = d->df_raw * d->factor;
 
     if (grad){
-        double dS0 = R*T*(log(p[0] + d->d_em[0])+1.0);
-        double dS1 = R*T*(log(p[1] + d->d_em[1])+1.0);
+        double dS0 = R*T*(creal(clog(p[0] + d->d_em[0]))+1.0);
+        double dS1 = R*T*(creal(clog(p[1] + d->d_em[1]))+1.0);
         grad[0] = (dS0 + mu_Gex[0] + gb[0])*d->factor - (d->df_raw*d->factor*(d->ape[0]/d->sum_apep));
         grad[1] = (dS1 + mu_Gex[1] + gb[1])*d->factor - (d->df_raw*d->factor*(d->ape[1]/d->sum_apep));
     }
@@ -601,8 +602,8 @@ double obj_gh_fsp(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double Sconfig = 0.0;
     double dSi[3];
     for (int i = 0; i < 3; i++){
-        Sconfig += p[i]*log(p[i] + d->d_em[i]);
-        dSi[i]   = R*T*(log(p[i] + d->d_em[i])+1.0);
+        Sconfig += p[i]*creal(clog(p[i] + d->d_em[i]));
+        dSi[i]   = R*T*(creal(clog(p[i] + d->d_em[i]))+1.0);
     }
     Sconfig *= R*T;
 
@@ -694,8 +695,8 @@ double obj_gh_g(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double Sconfig = 0.0;
     double dSi[3];
     for (int i = 0; i < 3; i++){
-        Sconfig += p[i]*log(p[i] + d->d_em[i]);
-        dSi[i]   = 3.0*R*T*(log(p[i] + d->d_em[i])+1.0);
+        Sconfig += p[i]*creal(clog(p[i] + d->d_em[i]));
+        dSi[i]   = 3.0*R*T*(creal(clog(p[i] + d->d_em[i]))+1.0);
     }
     Sconfig *= 3.0*R*T;
 
@@ -753,13 +754,13 @@ double obj_gh_hb(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double xFe3M3  = p[2] + d->d_em[2];
 
     double H  = WFEMG*p[1] - WFEMG*p[1]*p[1] + WFEAL*p[2] - WFEAL*p[2]*p[2];
-    double S  = -Rgas*(4.0*xMgM12*log(xMgM12) + 4.0*xFe2M12*log(xFe2M12) + xFe3M3*log(xFe3M3) + xAlM3*log(xAlM3));
+    double S  = -Rgas*(4.0*xMgM12*creal(clog(xMgM12)) + 4.0*xFe2M12*creal(clog(xFe2M12)) + xFe3M3*creal(clog(xFe3M3)) + xAlM3*creal(clog(xAlM3)));
     double Gex = H - T*S;   /* V=0 identically for this phase */
 
     double dGex[3];
     dGex[0] = 0.0;   /* pargasite is the reference endmember (r0,r1 = x_fparg,x_mhst in xMELTS' own basis) */
-    dGex[1] = WFEMG*(1.0-2.0*p[1]) + 4.0*Rgas*T*log(xFe2M12/xMgM12);
-    dGex[2] = WFEAL*(1.0-2.0*p[2]) +     Rgas*T*log(xFe3M3/xAlM3);
+    dGex[1] = WFEMG*(1.0-2.0*p[1]) + 4.0*Rgas*T*creal(clog(xFe2M12/xMgM12));
+    dGex[2] = WFEAL*(1.0-2.0*p[2]) +     Rgas*T*creal(clog(xFe3M3/xAlM3));
 
     for (int i = 0; i < 3; i++){
         double mu = Gex;
@@ -824,11 +825,11 @@ double obj_gh_lc(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double e  = (2.0/3.0)*(1.0-p0)*p1;
     double f  = 1.0-(2.0/3.0)*p1;
 
-    double K = 1.5*log(2.0/3.0) + 0.5*log(0.5);
+    double K = 1.5*creal(clog(2.0/3.0)) + 0.5*creal(clog(0.5));
 
     double H = WNAK*p0 + WNAH*p1 - WNAK*p0*p0 - WNAH*p1*p1 + DGR*p0*p1;
-    double S = -Rgas*( a*log(a) + b*log(b) + c*log(c)
-                      + 1.5*(dd*log(dd) + e*log(e) + f*log(f))
+    double S = -Rgas*( a*creal(clog(a)) + b*creal(clog(b)) + c*creal(clog(c))
+                      + 1.5*(dd*creal(clog(dd)) + e*creal(clog(e)) + f*creal(clog(f)))
                       - p1*K );
 
     double Gex = H - T*S;   /* V=0 identically for this phase */
@@ -836,8 +837,8 @@ double obj_gh_lc(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double dH0 = WNAK - 2.0*WNAK*p0 + DGR*p1;
     double dH1 = WNAH - 2.0*WNAH*p1 + DGR*p0;
 
-    double dS0 = -Rgas*( (1.0-p1)*log(a/b) + p1*log(dd/e) );
-    double dS1 = -Rgas*( p0*log(dd/a) + (1.0-p0)*log(e/b) + log(c/f) - K );
+    double dS0 = -Rgas*( (1.0-p1)*creal(clog(a/b)) + p1*creal(clog(dd/e)) );
+    double dS1 = -Rgas*( p0*creal(clog(dd/a)) + (1.0-p0)*creal(clog(e/b)) + creal(clog(c/f)) - K );
 
     double dGex[3];
     dGex[0] = dH0 - T*dS0;
@@ -923,7 +924,7 @@ static double GH_mel_mix_geh_order_G(double T){
     double R = 8.3143;
     double s = 0.1;
     for (int iter = 0; iter < 1000; iter++){
-        double dgds   = R*T*(-2.0*log(1.0-s) + log(s) + log(1.0+s)) + DG22p + W22p*(1.0-2.0*s);
+        double dgds   = R*T*(-2.0*creal(clog(1.0-s)) + creal(clog(s)) + creal(clog(1.0+s))) + DG22p + W22p*(1.0-2.0*s);
         double d2gds2 = R*T*(2.0/(1.0-s) + 1.0/s + 1.0/(1.0+s)) - 2.0*W22p;
         double sNew   = s - dgds/d2gds2;
         sNew = (sNew > 1.0 - 2.220446049250313e-16) ? 1.0 - 2.220446049250313e-16 : sNew;
@@ -932,7 +933,7 @@ static double GH_mel_mix_geh_order_G(double T){
         s = sNew;
         if (converged) break;
     }
-    double S = -R*( 2.0*(1.0-s)*log(1.0-s) + s*log(s) + (1.0+s)*log(1.0+s) - 2.0*log(2.0) );
+    double S = -R*( 2.0*(1.0-s)*creal(clog(1.0-s)) + s*creal(clog(s)) + (1.0+s)*creal(clog(1.0+s)) - 2.0*creal(clog(2.0)) );
     double H = DG22p*s + W22p*s*(1.0-s);
     return H - T*S;
 }
@@ -970,13 +971,13 @@ double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double dgds_lo, dgds_hi;
     {
         double xAl3T1 = r0-s_lo, xSi4T1 = r2+s_lo, xAl3T2 = 0.5*(r0+s_lo), xSi4T2 = 1.0-0.5*(r0+s_lo);
-        dgds_lo = Rgas*T*(-log(xAl3T1)+log(xSi4T1)+log(xAl3T2)-log(xSi4T2))
+        dgds_lo = Rgas*T*(-creal(clog(xAl3T1))+creal(clog(xSi4T1))+creal(clog(xAl3T2))-creal(clog(xSi4T2)))
                 + (DG22p+W12p-W12) - 2.0*W22p*s_lo + (W22p-W12p+W12)*r0
                 + (W2p3-W23-W12p+W12)*r1 + (W2p4-W24-W12p+W12)*r2;
     }
     {
         double xAl3T1 = r0-s_hi, xSi4T1 = r2+s_hi, xAl3T2 = 0.5*(r0+s_hi), xSi4T2 = 1.0-0.5*(r0+s_hi);
-        dgds_hi = Rgas*T*(-log(xAl3T1)+log(xSi4T1)+log(xAl3T2)-log(xSi4T2))
+        dgds_hi = Rgas*T*(-creal(clog(xAl3T1))+creal(clog(xSi4T1))+creal(clog(xAl3T2))-creal(clog(xSi4T2)))
                 + (DG22p+W12p-W12) - 2.0*W22p*s_hi + (W22p-W12p+W12)*r0
                 + (W2p3-W23-W12p+W12)*r1 + (W2p4-W24-W12p+W12)*r2;
     }
@@ -993,7 +994,7 @@ double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db){
         for (int it = 0; it < 80; it++){
             double mid = 0.5*(a+b);
             double xAl3T1 = r0-mid, xSi4T1 = r2+mid, xAl3T2 = 0.5*(r0+mid), xSi4T2 = 1.0-0.5*(r0+mid);
-            double fm = Rgas*T*(-log(xAl3T1)+log(xSi4T1)+log(xAl3T2)-log(xSi4T2))
+            double fm = Rgas*T*(-creal(clog(xAl3T1))+creal(clog(xSi4T1))+creal(clog(xAl3T2))-creal(clog(xSi4T2)))
                       + (DG22p+W12p-W12) - 2.0*W22p*mid + (W22p-W12p+W12)*r0
                       + (W2p3-W23-W12p+W12)*r1 + (W2p4-W24-W12p+W12)*r2;
             if ((fa > 0.0) == (fm > 0.0)){ a = mid; fa = fm; }
@@ -1027,10 +1028,10 @@ double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db){
              + W14*r2*(1.0-r2) + (W24-W14-W12)*r0*r2 + (W34-W14-W13)*r1*r2
              + (W2p4-W24-W12p+W12)*r2*s;
 
-    double S = -Rgas*( 2.0*xCaOct*log(xCaOct) + 2.0*xNaOct*log(xNaOct)
-                      + xMg2T1*log(xMg2T1) + xFe2T1*log(xFe2T1)
-                      + xAl3T1*log(xAl3T1) + xSi4T1*log(xSi4T1)
-                      + 2.0*xAl3T2*log(xAl3T2) + 2.0*xSi4T2*log(xSi4T2) );
+    double S = -Rgas*( 2.0*xCaOct*creal(clog(xCaOct)) + 2.0*xNaOct*creal(clog(xNaOct))
+                      + xMg2T1*creal(clog(xMg2T1)) + xFe2T1*creal(clog(xFe2T1))
+                      + xAl3T1*creal(clog(xAl3T1)) + xSi4T1*creal(clog(xSi4T1))
+                      + 2.0*xAl3T2*creal(clog(xAl3T2)) + 2.0*xSi4T2*creal(clog(xSi4T2)) );
 
     double Graw = H - T*S;   /* V=0 identically for this phase */
 
@@ -1052,18 +1053,18 @@ double obj_gh_mel(unsigned n, const double *x, double *grad, void *SS_ref_db){
        dGex[0] is no longer 0: Gex genuinely depends on p[0] through the
        entropy term. Verified against central finite differences (see
        scratchpad verify_mel_grad.c). */
-    double dGdr0 = Rgas*T*(log(xAl3T1)+log(xAl3T2)-log(xSi4T2)+1.0)
+    double dGdr0 = Rgas*T*(creal(clog(xAl3T1))+creal(clog(xAl3T2))-creal(clog(xSi4T2))+1.0)
                  + W12*(1.0-2.0*r0) + (W22p-W12p+W12)*s
                  + (W23-W12-W13)*r1 + (W24-W14-W12)*r2;
-    double dGdr1 = Rgas*T*(log(xFe2T1)+1.0)
+    double dGdr1 = Rgas*T*(creal(clog(xFe2T1))+1.0)
                  + W13*(1.0-2.0*r1) + (W23-W12-W13)*r0
                  + (W2p3-W23-W12p+W12)*s + (W34-W14-W13)*r2;
-    double dGdr2 = Rgas*T*(-2.0*log(xCaOct)+2.0*log(xNaOct)+log(xSi4T1)+1.0)
+    double dGdr2 = Rgas*T*(-2.0*creal(clog(xCaOct))+2.0*creal(clog(xNaOct))+creal(clog(xSi4T1))+1.0)
                  + W14*(1.0-2.0*r2) + (W24-W14-W12)*r0
                  + (W34-W14-W13)*r1 + (W2p4-W24-W12p+W12)*s;
 
     double dGex[4];
-    dGex[0] = Rgas*T*(log(xMg2T1)+1.0);
+    dGex[0] = Rgas*T*(creal(clog(xMg2T1))+1.0);
     dGex[1] = dGdr0 - geh_G;   /* -d(ENDMEMBERS)/dp[1], geh's own correction */
     dGex[2] = dGdr1;
     dGex[3] = dGdr2;
@@ -1167,9 +1168,9 @@ double obj_gh_cum(unsigned n, const double *x, double *grad, void *SS_ref_db){
         double xfe2m2  = p1+3.0*s0/7.0-5.0*s1/7.0;
         double xmg2m4 = 1.0-xfe2m4, xmg2m13 = 1.0-xfe2m13, xmg2m2 = 1.0-xfe2m2;
 
-        double dgds0 = Rgas*T*( (6.0/7.0)*log(xfe2m4/xmg2m4) - (12.0/7.0)*log(xfe2m13/xmg2m13) + (6.0/7.0)*log(xfe2m2/xmg2m2) )
+        double dgds0 = Rgas*T*( (6.0/7.0)*creal(clog(xfe2m4/xmg2m4)) - (12.0/7.0)*creal(clog(xfe2m13/xmg2m13)) + (6.0/7.0)*creal(clog(xfe2m2/xmg2m2)) )
                      + HS13 + HRS13*r + 2.0*HS13S13*s0 + HS13S2*s1;
-        double dgds1 = Rgas*T*( (4.0/7.0)*log(xfe2m4/xmg2m4) + (6.0/7.0)*log(xfe2m13/xmg2m13) - (10.0/7.0)*log(xfe2m2/xmg2m2) )
+        double dgds1 = Rgas*T*( (4.0/7.0)*creal(clog(xfe2m4/xmg2m4)) + (6.0/7.0)*creal(clog(xfe2m13/xmg2m13)) - (10.0/7.0)*creal(clog(xfe2m2/xmg2m2)) )
                      + HS2 + HRS2*r + HS13S2*s0 + 2.0*HS2S2*s1;
 
         double H00 = Rgas*T*( (18.0/49.0)/xfe2m4 + (18.0/49.0)/xmg2m4 + (48.0/49.0)/xfe2m13 + (48.0/49.0)/xmg2m13
@@ -1210,14 +1211,14 @@ double obj_gh_cum(unsigned n, const double *x, double *grad, void *SS_ref_db){
              + 2.0*HRS13*p1*s0 + 2.0*HRS2*p1*s1
              + HS13S13*s0*s0 + HS13S2*s0*s1 + HS2S2*s1*s1;
 
-    double S = -Rgas*( 2.0*xfe2m4*log(xfe2m4) + 2.0*xmg2m4*log(xmg2m4)
-                      + 3.0*xfe2m13*log(xfe2m13) + 3.0*xmg2m13*log(xmg2m13)
-                      + 2.0*xfe2m2*log(xfe2m2) + 2.0*xmg2m2*log(xmg2m2) );
+    double S = -Rgas*( 2.0*xfe2m4*creal(clog(xfe2m4)) + 2.0*xmg2m4*creal(clog(xmg2m4))
+                      + 3.0*xfe2m13*creal(clog(xfe2m13)) + 3.0*xmg2m13*creal(clog(xmg2m13))
+                      + 2.0*xfe2m2*creal(clog(xfe2m2)) + 2.0*xmg2m2*creal(clog(xmg2m2)) );
 
     double Gex = H - T*S;   /* V=0 identically for this phase */
 
     double dGdp1 = 4.0*H0c*(p0-p1) + 2.0*HRS13*s0 + 2.0*HRS2*s1
-                 + Rgas*T*( 2.0*log(xfe2m4/xmg2m4) + 3.0*log(xfe2m13/xmg2m13) + 2.0*log(xfe2m2/xmg2m2) );
+                 + Rgas*T*( 2.0*creal(clog(xfe2m4/xmg2m4)) + 3.0*creal(clog(xfe2m13/xmg2m13)) + 2.0*creal(clog(xfe2m2/xmg2m2)) );
 
     double dGex[2];
     dGex[0] = 0.0;   /* cummingtonite is the dependent endmember */
@@ -1344,13 +1345,13 @@ static void GH_spn_dgds(double p0,double p2,double p3,double p4,double s0,double
 
     *dgds0 = gs1 + gx2s1*p3 + gx3s1*p0 + gx4s1*p4 + gx5s1*p2
            + 2.0*gs1s1*s0 + gs1s2*s1 + gs1s3*p0 + gs1s4*s2
-           + 0.5*Rgas*T*(log(xmg2tet/xfe2tet) + log(xfe2oct/xmg2oct));
+           + 0.5*Rgas*T*(creal(clog(xmg2tet/xfe2tet)) + creal(clog(xfe2oct/xmg2oct)));
     *dgds1 = gs2 + gx2s2*p3 + gx3s2*p0 + gx4s2*p4 + gx5s2*p2
            + gs1s2*s0 + 2.0*gs2s2*s1 + gs2s3*p0 + gs2s4*s2
-           + Rgas*T*(log(xfe2tet/xal3tet) + log(xal3oct/xfe2oct));
+           + Rgas*T*(creal(clog(xfe2tet/xal3tet)) + creal(clog(xal3oct/xfe2oct)));
     *dgds2 = hs4 - T*ss4 + gx2s4*p3 + gx3s4*p0 + gx4s4*p4 + gx5s4*p2
            + gs1s4*s0 + gs2s4*s1 + gs3s4*p0 + 2.0*gs4s4*s2
-           + Rgas*T*(log(xfe2tet/xfe3tet) + log(xfe3oct/xfe2oct));
+           + Rgas*T*(creal(clog(xfe2tet/xfe3tet)) + creal(clog(xfe3oct/xfe2oct)));
 }
 /* Hessian d2G/ds_i ds_j, from xMELTS' own D2GDS0S0/D2GDS0S1/D2GDS0S2/
    D2GDS1S1/D2GDS1S2/D2GDS2S2 macros (spinel.c lines 1660-1674) - not
@@ -1390,11 +1391,11 @@ static double GH_spn_G_at(double p0,double p2,double p3,double p4,double s0,doub
              + gc[25]*s1*s1 + gc[26]*s1*p0 + gc[27]*s1*s2
              + gc[28]*p0*p0 + gc[29]*p0*s2 + gc[30]*s2*s2;
 
-    double S = -Rgas*( xmg2tet*log(xmg2tet) + xfe2tet*log(xfe2tet)
-                      + xal3tet*log(xal3tet) + xfe3tet*log(xfe3tet)
-                      + 2.0*xmg2oct*log(xmg2oct) + 2.0*xfe2oct*log(xfe2oct)
-                      + 2.0*xal3oct*log(xal3oct) + 2.0*xfe3oct*log(xfe3oct)
-                      + 2.0*xcr3oct*log(xcr3oct) + 2.0*xti4oct*log(xti4oct) ) + gc[4]*s2;
+    double S = -Rgas*( xmg2tet*creal(clog(xmg2tet)) + xfe2tet*creal(clog(xfe2tet))
+                      + xal3tet*creal(clog(xal3tet)) + xfe3tet*creal(clog(xfe3tet))
+                      + 2.0*xmg2oct*creal(clog(xmg2oct)) + 2.0*xfe2oct*creal(clog(xfe2oct))
+                      + 2.0*xal3oct*creal(clog(xal3oct)) + 2.0*xfe3oct*creal(clog(xfe3oct))
+                      + 2.0*xcr3oct*creal(clog(xcr3oct)) + 2.0*xti4oct*creal(clog(xti4oct)) ) + gc[4]*s2;
 
     double Gvol = p4*p2*(WV1*p2+WV2*p4)*(Pval-1.0);
     return H - T*S + Gvol;
@@ -1547,11 +1548,11 @@ static void GH_spn_mix_endmember_G(double T, double *CR_G, double *HC_G, double 
     for (int iter = 0; iter < 1000; iter++){
         double dgds0 = gs1 + gs2/2.0 + gx2s1 + gx2s2/2.0 + 2.0*gs1s1*s0
                      + gs1s2*(0.5+s0) + gs2s2*(1.0+s0)/2.0
-                     + R*T*(0.5*log(1.0+s0) + 0.5*log(3.0+s0) - log(1.0-s0));
+                     + R*T*(0.5*creal(clog(1.0+s0)) + 0.5*creal(clog(3.0+s0)) - creal(clog(1.0-s0)));
         double dgds1 = gs2 + 2.0*gs2s2*s1
-                     + R*T*(log(s1) + log(1.0+s1) - 2.0*log(1.0-s1));
+                     + R*T*(creal(clog(s1)) + creal(clog(1.0+s1)) - 2.0*creal(clog(1.0-s1)));
         double dgds2 = hs4 - T*S55 + gx5s4 + 2.0*gs4s4*s2
-                     + R*T*(log(s2) - 2.0*log(1.0-s2) + log(1.0+s2));
+                     + R*T*(creal(clog(s2)) - 2.0*creal(clog(1.0-s2)) + creal(clog(1.0+s2)));
         double d00 = 2.0*gs1s1 + gs1s2 + gs2s2/2.0 + R*T*(0.5/(1.0+s0) + 0.5/(3.0+s0) + 1.0/(1.0-s0));
         double d11 = 2.0*gs2s2 + R*T*(1.0/s1 + 1.0/(1.0+s1) + 2.0/(1.0-s1));
         double d22 = 2.0*gs4s4 + R*T*(1.0/s2 + 2.0/(1.0-s2) + 1.0/(1.0+s2));
@@ -1563,20 +1564,20 @@ static void GH_spn_mix_endmember_G(double T, double *CR_G, double *HC_G, double 
         if (converged) break;
     }
 
-    double SP_S = -R*(0.5*(1.0+s0)*log(1.0+s0)+(1.0-s0)*log(1.0-s0)+0.5*(3.0+s0)*log(3.0+s0)-5.0*log(2.0));
+    double SP_S = -R*(0.5*(1.0+s0)*creal(clog(1.0+s0))+(1.0-s0)*creal(clog(1.0-s0))+0.5*(3.0+s0)*creal(clog(3.0+s0))-5.0*creal(clog(2.0)));
     double SP_H = gs1*s0 + gs2*(1.0+s0)/2.0 + gx2x2 + gx2s1*s0 + gx2s2*(1.0+s0)/2.0
                 + gs1s1*s0*s0 + gs1s2*s0*(1.0+s0)/2.0 + gs2s2*(1.0+s0)*(1.0+s0)/4.0;
     *SP_G = SP_H - T*SP_S;
 
-    double HC_S = -R*(s1*log(s1)+2.0*(1.0-s1)*log(1.0-s1)+(1.0+s1)*log(1.0+s1)-2.0*log(2.0));
+    double HC_S = -R*(s1*creal(clog(s1))+2.0*(1.0-s1)*creal(clog(1.0-s1))+(1.0+s1)*creal(clog(1.0+s1))-2.0*creal(clog(2.0)));
     double HC_H = gs2*s1 + gs2s2*s1*s1;
     *HC_G = HC_H - T*HC_S;
 
     *CR_G = gs3 + gx3x3 + gx3s3 + gs3s3;   /* CR_S=0.0 identically */
 
-    *UV_G = gx4x4 - T*(R*2.0*log(2.0));
+    *UV_G = gx4x4 - T*(R*2.0*creal(clog(2.0)));
 
-    double MT_S = -R*(s2*log(s2)+2.0*(1.0-s2)*log(1.0-s2)+(1.0+s2)*log(1.0+s2)-2.0*log(2.0)) + S55*s2;
+    double MT_S = -R*(s2*creal(clog(s2))+2.0*(1.0-s2)*creal(clog(1.0-s2))+(1.0+s2)*creal(clog(1.0+s2))-2.0*creal(clog(2.0))) + S55*s2;
     double MT_H = hs4*s2 + gx5x5 + gx5s4*s2 + gs4s4*s2*s2;
     *MT_G = MT_H - T*MT_S;
 }
@@ -1736,11 +1737,11 @@ double obj_gh_spn(unsigned n, const double *x, double *grad, void *SS_ref_db){
              + gc[25]*s1*s1 + gc[26]*s1*p0 + gc[27]*s1*s2
              + gc[28]*p0*p0 + gc[29]*p0*s2 + gc[30]*s2*s2;
 
-    double S = -Rgas*( xmg2tet*log(xmg2tet) + xfe2tet*log(xfe2tet)
-                      + xal3tet*log(xal3tet) + xfe3tet*log(xfe3tet)
-                      + 2.0*xmg2oct*log(xmg2oct) + 2.0*xfe2oct*log(xfe2oct)
-                      + 2.0*xal3oct*log(xal3oct) + 2.0*xfe3oct*log(xfe3oct)
-                      + 2.0*xcr3oct*log(xcr3oct) + 2.0*xti4oct*log(xti4oct) ) + gc[4]*s2;
+    double S = -Rgas*( xmg2tet*creal(clog(xmg2tet)) + xfe2tet*creal(clog(xfe2tet))
+                      + xal3tet*creal(clog(xal3tet)) + xfe3tet*creal(clog(xfe3tet))
+                      + 2.0*xmg2oct*creal(clog(xmg2oct)) + 2.0*xfe2oct*creal(clog(xfe2oct))
+                      + 2.0*xal3oct*creal(clog(xal3oct)) + 2.0*xfe3oct*creal(clog(xfe3oct))
+                      + 2.0*xcr3oct*creal(clog(xcr3oct)) + 2.0*xti4oct*creal(clog(xti4oct)) ) + gc[4]*s2;
 
     double Gvol = p4*p2*(WV1*p2+WV2*p4)*((d->P)-1.0);
     double Graw = H - T*S + Gvol;
@@ -1775,7 +1776,7 @@ double obj_gh_spn(unsigned n, const double *x, double *grad, void *SS_ref_db){
        non-smoothness. */
     double dGdp0 = gc[2] + gc[7]*p3 + gx2x3*p3 + 2.0*gx3x3*p0 + gx3x4*p4 + gx3x5*p2 + gc[9]*s0 + gc[10]*s1 + 2.0*gc[11]*p0 + gc[12]*s2
                  + gc[15]*p4 + gc[19]*p2 + gc[23]*s0 + gc[26]*s1 + 2.0*gc[28]*p0 + gc[29]*s2
-                 + Rgas*T*(log(xfe2tet/xal3tet) + 2.0*log(xcr3oct) - log(xfe2oct) - log(xal3oct));
+                 + Rgas*T*(creal(clog(xfe2tet/xal3tet)) + 2.0*creal(clog(xcr3oct)) - creal(clog(xfe2oct)) - creal(clog(xal3oct)));
 
     /* dGdp2/dGdp4 pressure (Gvol) cross terms: xMELTS' own DGDR3/DGDR2
        macros (spinel.c ~1595-1600) differentiate Gvol =
@@ -1790,12 +1791,12 @@ double obj_gh_spn(unsigned n, const double *x, double *grad, void *SS_ref_db){
        while investigating gh predicting spinel stable ~280C above real
        xMELTS' liquidus for the same bulk/T/P. */
     double dGdp2 = gx5x5*2.0*p2 + gx2x5*p3 + gx3x5*p0 + gx4x5*p4 + gc[17]*s0 + gc[18]*s1 + gc[19]*p0 + gc[20]*s2
-                 + Rgas*T*(log(xfe3tet/xal3tet) + log(xfe3oct/xal3oct))
+                 + Rgas*T*(creal(clog(xfe3tet/xal3tet)) + creal(clog(xfe3oct/xal3oct)))
                  + p4*(WV1*p2+WV2*p4)*((d->P)-1.0) + p2*p4*WV1*((d->P)-1.0);
     double dGdp3 = gx2x2*2.0*p3 + gx2x3*p0 + gx2x4*p4 + gx2x5*p2 + gc[5]*s0 + gc[6]*s1 + gc[7]*p0 + gc[8]*s2
-                 + 0.5*Rgas*T*(log(xmg2tet/xfe2tet) + log(xmg2oct/xfe2oct));
+                 + 0.5*Rgas*T*(creal(clog(xmg2tet/xfe2tet)) + creal(clog(xmg2oct/xfe2oct)));
     double dGdp4 = gx4x4*2.0*p4 + gx2x4*p3 + gx3x4*p0 + gx4x5*p2 + gc[13]*s0 + gc[14]*s1 + gc[15]*p0 + gc[16]*s2
-                 + Rgas*T*(log(xfe2tet/xal3tet) + log(xti4oct/xal3oct))
+                 + Rgas*T*(creal(clog(xfe2tet/xal3tet)) + creal(clog(xti4oct/xal3oct)))
                  + p2*(WV1*p2+WV2*p4)*((d->P)-1.0) + p2*p4*WV2*((d->P)-1.0);
 
     double dGex[5];
@@ -1951,19 +1952,19 @@ static void GH_rhm_dgds(const double r[4], const double s[3], double t, double p
     double r0=r[0],r1=r[1],r2=r[2],r3=r[3], s0=s[0],s1=s[1],s2=s[2];
     double sumr = r0+r1+r2+r3;
 
-    *dgds0 = 0.5*R*t*( log(xfe2a) - log(xti4a) - log(xfe2b) + log(xti4b) )
+    *dgds0 = 0.5*R*t*( creal(clog(xfe2a)) - creal(clog(xti4a)) - creal(clog(xfe2b)) + creal(clog(xti4b)) )
            + (GH_rhm_whilmgei-GH_rhm_whilmgeiT)*s1/2.0 + (GH_rhm_whilmpyr-GH_rhm_whilmpyrT)*s2/2.0
            - 2.0*(GH_rhm_dhilm+(p-1.0)*GH_rhm_dvilm+((GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)/2.0+(GH_rhm_whhmilm2+(p-1.0)*GH_rhm_wvhmilm2)/4.0)*(1.0-sumr)
                     -(GH_rhm_dwhcrnilm+(p-1.0)*GH_rhm_dwvcrnilm)*r3/2.0)*s0
            + 2.0*(GH_rhm_whilm+(p-1.0)*GH_rhm_wvilm)*s0*(r0*r0-2.0*s0*s0);
 
-    *dgds1 = 0.5*R*t*( log(xmg2a) - log(xti4a) - log(xmg2b) + log(xti4b) )
+    *dgds1 = 0.5*R*t*( creal(clog(xmg2a)) - creal(clog(xti4a)) - creal(clog(xmg2b)) + creal(clog(xti4b)) )
            + (GH_rhm_whilmgei-GH_rhm_whilmgeiT)*s0/2.0 + (GH_rhm_whgeipyr-GH_rhm_whgeipyrT)*s2/2.0
            - 2.0*(GH_rhm_dhgei+(p-1.0)*GH_rhm_dvgei+((GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)/2.0+(GH_rhm_whhmgei2+(p-1.0)*GH_rhm_wvhmgei2)/4.0)*(1.0-sumr)
                     -(GH_rhm_dwhcrngei+(p-1.0)*GH_rhm_dwvcrngei)*r3/2.0)*s1
            + 2.0*(GH_rhm_whgei+(p-1.0)*GH_rhm_wvgei)*s1*(r1*r1-2.0*s1*s1);
 
-    *dgds2 = 0.5*R*t*( log(xmn2a) - log(xti4a) - log(xmn2b) + log(xti4b) )
+    *dgds2 = 0.5*R*t*( creal(clog(xmn2a)) - creal(clog(xti4a)) - creal(clog(xmn2b)) + creal(clog(xti4b)) )
            + (GH_rhm_whilmpyr-GH_rhm_whilmpyrT)*s0/2.0 + (GH_rhm_whgeipyr-GH_rhm_whgeipyrT)*s1/2.0
            - 2.0*(GH_rhm_dhpyr+(p-1.0)*GH_rhm_dvpyr+((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(1.0-sumr)
                     -(GH_rhm_dwhcrnpyr+(p-1.0)*GH_rhm_dwvcrnpyr)*r3/2.0)*s2
@@ -2047,12 +2048,12 @@ static double GH_rhm_S(const double r[4], const double s[3], double t){
     GH_rhm_ID_fracs(r,&xfe2ID,&xmg2ID,&xmn2ID,&xti4ID,&xal3ID,&xfe3ID);
     double R = GH_rhm_R;
 
-    return -R*( xfe2a*log(xfe2a) + xmg2a*log(xmg2a) + xmn2a*log(xmn2a) + xti4a*log(xti4a)
-              + xfe2b*log(xfe2b) + xmg2b*log(xmg2b) + xmn2b*log(xmn2b) + xti4b*log(xti4b)
-              - 2.0*xfe2ID*log(xfe2ID) - 2.0*xmg2ID*log(xmg2ID) - 2.0*xmn2ID*log(xmn2ID) - 2.0*xti4ID*log(xti4ID) )
-         - (1.0-GH_rhm_SROconst)*2.0*R*( xfe3ID*log(xfe3ID) + xal3ID*log(xal3ID) + xfe2ID*log(xfe2ID)
-                                        + xmg2ID*log(xmg2ID) + xmn2ID*log(xmn2ID) + xti4ID*log(xti4ID) )
-         + GH_rhm_SROconst*2.0*R*log(2.0);
+    return -R*( xfe2a*creal(clog(xfe2a)) + xmg2a*creal(clog(xmg2a)) + xmn2a*creal(clog(xmn2a)) + xti4a*creal(clog(xti4a))
+              + xfe2b*creal(clog(xfe2b)) + xmg2b*creal(clog(xmg2b)) + xmn2b*creal(clog(xmn2b)) + xti4b*creal(clog(xti4b))
+              - 2.0*xfe2ID*creal(clog(xfe2ID)) - 2.0*xmg2ID*creal(clog(xmg2ID)) - 2.0*xmn2ID*creal(clog(xmn2ID)) - 2.0*xti4ID*creal(clog(xti4ID)) )
+         - (1.0-GH_rhm_SROconst)*2.0*R*( xfe3ID*creal(clog(xfe3ID)) + xal3ID*creal(clog(xal3ID)) + xfe2ID*creal(clog(xfe2ID))
+                                        + xmg2ID*creal(clog(xmg2ID)) + xmn2ID*creal(clog(xmn2ID)) + xti4ID*creal(clog(xti4ID)) )
+         + GH_rhm_SROconst*2.0*R*creal(clog(2.0));
 }
 static double GH_rhm_H(const double r[4], const double s[3], double p){
     double r0=r[0],r1=r[1],r2=r[2],r3=r[3], s0=s[0],s1=s[1],s2=s[2];
@@ -2088,8 +2089,8 @@ static void GH_rhm_dGdr(const double r[4], const double s[3], double t, double p
     double r0=r[0],r1=r[1],r2=r[2],r3=r[3], s0=s[0],s1=s[1],s2=s[2];
     double sumr = r0+r1+r2+r3;
 
-    *dgdr0 = R*t*( 0.5*log(xfe2a) + 0.5*log(xti4a) + 0.5*log(xfe2b) + 0.5*log(xti4b) - log(xfe2ID) - log(xti4ID) )
-           + (1.0-GH_rhm_SROconst)*2.0*R*t*(- log(xfe3ID) + 0.5*log(xfe2ID) + 0.5*log(xti4ID) )
+    *dgdr0 = R*t*( 0.5*creal(clog(xfe2a)) + 0.5*creal(clog(xti4a)) + 0.5*creal(clog(xfe2b)) + 0.5*creal(clog(xti4b)) - creal(clog(xfe2ID)) - creal(clog(xti4ID)) )
+           + (1.0-GH_rhm_SROconst)*2.0*R*t*(- creal(clog(xfe3ID)) + 0.5*creal(clog(xfe2ID)) + 0.5*creal(clog(xti4ID)) )
            + ((GH_rhm_whhmilm+(p-1.0)*GH_rhm_wvhmilm)+(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*(1.0-2.0*r0-r1-r2-r3))*(1.0-2.0*r0-r1-r2-r3)
            - ((GH_rhm_whhmgei+(p-1.0)*GH_rhm_wvhmgei)+(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*(1.0-r0-2.0*r1-r2-r3))*r1
            - ((GH_rhm_whhmpyr+(p-1.0)*GH_rhm_wvhmpyr)+(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*(1.0-r0-r1-2.0*r2-r3))*r2
@@ -2107,8 +2108,8 @@ static void GH_rhm_dGdr(const double r[4], const double s[3], double t, double p
            - ((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(r2*r2-s2*s2)
            + 2.0*(GH_rhm_whilm+(p-1.0)*GH_rhm_wvilm)*s0*s0*r0;
 
-    *dgdr1 = R*t*( 0.5*log(xmg2a) + 0.5*log(xti4a) + 0.5*log(xmg2b) + 0.5*log(xti4b) - log(xmg2ID) - log(xti4ID) )
-           + (1.0-GH_rhm_SROconst)*2.0*R*t*(- log(xfe3ID) + 0.5*log(xmg2ID) + 0.5*log(xti4ID) )
+    *dgdr1 = R*t*( 0.5*creal(clog(xmg2a)) + 0.5*creal(clog(xti4a)) + 0.5*creal(clog(xmg2b)) + 0.5*creal(clog(xti4b)) - creal(clog(xmg2ID)) - creal(clog(xti4ID)) )
+           + (1.0-GH_rhm_SROconst)*2.0*R*t*(- creal(clog(xfe3ID)) + 0.5*creal(clog(xmg2ID)) + 0.5*creal(clog(xti4ID)) )
            - ((GH_rhm_whhmilm+(p-1.0)*GH_rhm_wvhmilm)+(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*(1.0-2.0*r0-r1-r2-r3))*r0
            + ((GH_rhm_whhmgei+(p-1.0)*GH_rhm_wvhmgei)+(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*(1.0-r0-2.0*r1-r2-r3))*(1.0-r0-2.0*r1-r2-r3)
            - ((GH_rhm_whhmpyr+(p-1.0)*GH_rhm_wvhmpyr)+(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*(1.0-r0-r1-2.0*r2-r3))*r2
@@ -2126,8 +2127,8 @@ static void GH_rhm_dGdr(const double r[4], const double s[3], double t, double p
            - ((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(r2*r2-s2*s2)
            + 2.0*(GH_rhm_whgei+(p-1.0)*GH_rhm_wvgei)*s1*s1*r1;
 
-    *dgdr2 = R*t*( 0.5*log(xmn2a) + 0.5*log(xti4a) + 0.5*log(xmn2b) + 0.5*log(xti4b) - log(xmn2ID) - log(xti4ID) )
-           + (1.0-GH_rhm_SROconst)*2.0*R*t*(- log(xfe3ID) + 0.5*log(xmn2ID) + 0.5*log(xti4ID) )
+    *dgdr2 = R*t*( 0.5*creal(clog(xmn2a)) + 0.5*creal(clog(xti4a)) + 0.5*creal(clog(xmn2b)) + 0.5*creal(clog(xti4b)) - creal(clog(xmn2ID)) - creal(clog(xti4ID)) )
+           + (1.0-GH_rhm_SROconst)*2.0*R*t*(- creal(clog(xfe3ID)) + 0.5*creal(clog(xmn2ID)) + 0.5*creal(clog(xti4ID)) )
            - ((GH_rhm_whhmilm+(p-1.0)*GH_rhm_wvhmilm)+(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*(1.0-2.0*r0-r1-r2-r3))*r0
            - ((GH_rhm_whhmgei+(p-1.0)*GH_rhm_wvhmgei)+(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*(1.0-r0-2.0*r1-r2-r3))*r1
            + ((GH_rhm_whhmpyr+(p-1.0)*GH_rhm_wvhmpyr)+(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*(1.0-r0-r1-2.0*r2-r3))*(1.0-r0-r1-2.0*r2-r3)
@@ -2145,7 +2146,7 @@ static void GH_rhm_dGdr(const double r[4], const double s[3], double t, double p
            - ((GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)/2.0+(GH_rhm_whhmpyr2+(p-1.0)*GH_rhm_wvhmpyr2)/4.0)*(r2*r2-s2*s2)
            + 2.0*(GH_rhm_whpyr+(p-1.0)*GH_rhm_wvpyr)*s2*s2*r2;
 
-    *dgdr3 = (1.0-GH_rhm_SROconst)*2.0*R*t*(- log(xfe3ID) + log(xal3ID) )
+    *dgdr3 = (1.0-GH_rhm_SROconst)*2.0*R*t*(- creal(clog(xfe3ID)) + creal(clog(xal3ID)) )
            - ((GH_rhm_whhmilm+(p-1.0)*GH_rhm_wvhmilm)+(GH_rhm_dwhhmilm+(p-1.0)*GH_rhm_dwvhmilm)*(1.0-2.0*r0-r1-r2-r3))*r0
            - ((GH_rhm_whhmgei+(p-1.0)*GH_rhm_wvhmgei)+(GH_rhm_dwhhmgei+(p-1.0)*GH_rhm_dwvhmgei)*(1.0-r0-2.0*r1-r2-r3))*r1
            - ((GH_rhm_whhmpyr+(p-1.0)*GH_rhm_wvhmpyr)+(GH_rhm_dwhhmpyr+(p-1.0)*GH_rhm_dwvhmpyr)*(1.0-r0-r1-2.0*r2-r3))*r2
@@ -2179,7 +2180,7 @@ static double GH_rhm_mix_endmember_order_G(double T, double P, double dh, double
     double eps = 2.220446049250313e-16; /* DBL_EPSILON */
     double s = 0.98;
     for (int iter = 0; iter < 1000; iter++){
-        double dgds   = R*T*(log(1.0+s) - log(1.0-s))
+        double dgds   = R*T*(creal(clog(1.0+s)) - creal(clog(1.0-s)))
                       - 2.0*(dh+(P-1.0)*dv)*s + (wh+(P-1.0)*wv)*(2.0*s - 4.0*s*s*s);
         double d2gds2 = R*T*(1.0/(1.0+s) + 1.0/(1.0-s))
                       - 2.0*(dh+(P-1.0)*dv) + (wh+(P-1.0)*wv)*(2.0 - 12.0*s*s);
@@ -2190,14 +2191,14 @@ static double GH_rhm_mix_endmember_order_G(double T, double P, double dh, double
         s = sNew;
         if (converged) break;
     }
-    double S = -R*((1.0+s)*log(1.0+s) + (1.0-s)*log(1.0-s) - 2.0*log(2.0));
+    double S = -R*((1.0+s)*creal(clog(1.0+s)) + (1.0-s)*creal(clog(1.0-s)) - 2.0*creal(clog(2.0)));
     double H = (dh+(P-1.0)*dv)*(1.0 - s*s) + (wh+(P-1.0)*wv)*s*s*(1.0 - s*s);
     return H - T*S;
 }
 static double GH_rhm_mix_endmember_SRO_G(double T){
     const double SROconst = 0.0730205;
     double R = 8.3143;
-    return -T*(SROconst*2.0*R*log(2.0));
+    return -T*(SROconst*2.0*R*creal(clog(2.0)));
 }
 
 double obj_gh_rhm(unsigned n, const double *x, double *grad, void *SS_ref_db){
@@ -2345,7 +2346,7 @@ static double GH_nph_dgds0(double r0, double r1, double r2, double s0, double t,
     double WNAKSS = GH_nph_WHNAKSS + (p-1.0)*GH_nph_WVNAKSS;
     double G23 = GH_nph_H23 - t*GH_nph_S23;
 
-    return R*t*(0.75*log(xkls) - 0.75*log(xnals) - 0.75*log(xkss) + 0.75*log(xnass))
+    return R*t*(0.75*creal(clog(xkls)) - 0.75*creal(clog(xnals)) - 0.75*creal(clog(xkss)) + 0.75*creal(clog(xnass)))
          + 0.25*(2.0*GEX+GX+3.0*WNAKLS-WNAKSS)
          + (1.0/8.0)*(3.0*GX-9.0*WNAKLS-WNAKSS)*s0
          - 0.5*(GX+3.0*WNAKLS-WNAKSS)*r0
@@ -2424,9 +2425,9 @@ static double GH_nph_S(double r0, double r1, double r2, double s0, double t){
     GH_nph_site_fracs(r0,r1,r2,s0,&xkls,&xvcls,&xnals,&xkss,&xcass,&xnass);
     double R = GH_nph_R;
 
-    return GH_nph_S4*r2 - R*(xkls*log(xkls) + xvcls*log(xvcls) +
-             xnals*log(xnals) - (1.0-3.0*xcass)*log(1.0-3.0*xcass) +
-             3.0*xkss*log(xkss) + 3.0*xcass*log(xcass) + 3.0*xnass*log(xnass))
+    return GH_nph_S4*r2 - R*(xkls*creal(clog(xkls)) + xvcls*creal(clog(xvcls)) +
+             xnals*creal(clog(xnals)) - (1.0-3.0*xcass)*creal(clog(1.0-3.0*xcass)) +
+             3.0*xkss*creal(clog(xkss)) + 3.0*xcass*creal(clog(xcass)) + 3.0*xnass*creal(clog(xnass)))
          + 0.25*(2.0*GH_nph_SEX+GH_nph_SX)*s0 + GH_nph_SX*r0*(1.0-r0)
          + (3.0/16.0)*GH_nph_SX*s0*s0 - 0.5*GH_nph_SX*r0*s0
          + 0.5*(2.0*GH_nph_S23+GH_nph_SEX-GH_nph_SX)*r0*r1 + 0.125*(GH_nph_SX-GH_nph_SEX-2.0*GH_nph_S23)*r1*s0
@@ -2467,19 +2468,19 @@ static void GH_nph_dGdr(double r0, double r1, double r2, double s0, double t, do
     double G24 = GH_nph_H24 - t*GH_nph_S24;
     double G4  = -t*GH_nph_S4;
 
-    *dgdr0 = R*t*(log(xkls) - log(xnals) + 3.0*log(xkss) - 3.0*log(xnass))
+    *dgdr0 = R*t*(creal(clog(xkls)) - creal(clog(xnals)) + 3.0*creal(clog(xkss)) - 3.0*creal(clog(xnass)))
            + (GX+WNAKLS+WNAKSS)*(1.0-2.0*r0)
            - 0.5*(GX+3.0*WNAKLS-WNAKSS)*s0
            + 0.5*(2.0*G23+GEX-GX-2.0*WNAKLS-2.0*GH_nph_WVN+2.0*GH_nph_WVK)*r1
            + (6.0*G23+3.0*GEX-15.0*GX-18.0*WNAKLS-4.0*WNAKSS+18.0*GH_nph_WVN-18.0*GH_nph_WVK)*r2/18.0;
 
-    *dgdr1 = R*t*(log(xvcls) - log(xnals)) + GH_nph_WVN*(1.0-2.0*r1)
+    *dgdr1 = R*t*(creal(clog(xvcls)) - creal(clog(xnals))) + GH_nph_WVN*(1.0-2.0*r1)
            + 0.5*(2.0*G23+GEX-GX-2.0*WNAKLS-2.0*GH_nph_WVN+2.0*GH_nph_WVK)*r0
            + 0.125*(GX-GEX-2.0*G23-6.0*WNAKLS-6.0*GH_nph_WVN+6.0*GH_nph_WVK)*s0
            + (-GH_nph_WVN)*r2
            - GH_nph_PENALTY/(r1*r1);
 
-    *dgdr2 = G4 + R*t*(log(xvcls) - log(xnals) + log(1.0-3.0*xcass) + log(xcass) - log(xnass) + 1.0)
+    *dgdr2 = G4 + R*t*(creal(clog(xvcls)) - creal(clog(xnals)) + creal(clog(1.0-3.0*xcass)) + creal(clog(xcass)) - creal(clog(xnass)) + 1.0)
            + (6.0*G23+3.0*GEX-15.0*GX-18.0*WNAKLS-4.0*WNAKSS+18.0*GH_nph_WVN-18.0*GH_nph_WVK)*r0/18.0
            + (-GH_nph_WVN)*r1
            + (18.0*GH_nph_WVN-18.0*GH_nph_WVK-18.0*WNAKLS+4.0*WNAKSS-9.0*GEX-3.0*GX+6.0*G23-36.0*G24)*s0/24.0;
@@ -2579,7 +2580,7 @@ double obj_gh_kls(unsigned n, const double *x, double *grad, void *SS_ref_db){
     GH_kls_site_fracs(r0,r1,r2,&xk,&xvc,&xna,&xca);
 
     double S = DS1*(1.0-sumr) + DS2*r0 + DS3*r1 + (DS4+S4)*r2
-             - 4.0*R*(xk*log(xk) + (xvc-xca)*log(xvc-xca) + xna*log(xna) + xca*log(xca));
+             - 4.0*R*(xk*creal(clog(xk)) + (xvc-xca)*creal(clog(xvc-xca)) + xna*creal(clog(xna)) + xca*creal(clog(xca)));
     double H = DH1*(1.0-sumr) + DH2*r0 + DH3*r1 + DH4*r2
              + WKALS*r0*(1.0-sumr) + WNVKALS*r1*(1.0-sumr) + WKVKALS*r0*r1 + WKCKALS*r0*r2;
     double V = DV1*(1.0-sumr) + DV2*r0 + DV3*r1 + DV4*r2;
@@ -2587,13 +2588,13 @@ double obj_gh_kls(unsigned n, const double *x, double *grad, void *SS_ref_db){
 
     double Gex = H - T*S + (Pbar-1.0)*V + PENALTY/r1;
 
-    double dgdr0 = - (DH1-T*DS1+(Pbar-1.0)*DV1) + (DH2-T*DS2+(Pbar-1.0)*DV2) + R*T*4.0*(log(xk)-log(xna))
+    double dgdr0 = - (DH1-T*DS1+(Pbar-1.0)*DV1) + (DH2-T*DS2+(Pbar-1.0)*DV2) + R*T*4.0*(creal(clog(xk))-creal(clog(xna)))
                  + WKALS*(1.0-2.0*r0-r1-r2) - WNVKALS*r1 + WKVKALS*r1 + WKCKALS*r2;
-    double dgdr1 = - (DH1-T*DS1+(Pbar-1.0)*DV1) + (DH3-T*DS3+(Pbar-1.0)*DV3) + R*T*(log(xvc-xca)-log(xna))
+    double dgdr1 = - (DH1-T*DS1+(Pbar-1.0)*DV1) + (DH3-T*DS3+(Pbar-1.0)*DV3) + R*T*(creal(clog(xvc-xca))-creal(clog(xna)))
                  - WKALS*r0 + WNVKALS*(1.0-r0-2.0*r1-r2) + WKVKALS*r0
                  - PENALTY/(r1*r1);
     double dgdr2 = - (DH1-T*DS1+(Pbar-1.0)*DV1) + (DH4-T*DS4+(Pbar-1.0)*DV4) + G4
-                 + R*T*(log(xca)-2.0*log(xna)-1.0)
+                 + R*T*(creal(clog(xca))-2.0*creal(clog(xna))-1.0)
                  - WKALS*r0 - WNVKALS*r1 + WKCKALS*r0;
 
     double dGex[4];
@@ -2844,8 +2845,8 @@ static void GH_cpx_dgds(double r0,double r1,double r2,double r3,double r4,double
                          double T,double Rgas,double Pv,double *dgds0,double *dgds1){
     double xal3m1,xfe2m1,xfe3m1,xmg2m1,xti4m1,xca2m2,xfe2m2,xmg2m2,xna1m2,xal3tet,xfe3tet,xsi4tet;
     GH_cpx_site_fracs(r0,r1,r2,r3,r4,r5,s0,s1,&xal3m1,&xfe2m1,&xfe3m1,&xmg2m1,&xti4m1,&xca2m2,&xfe2m2,&xmg2m2,&xna1m2,&xal3tet,&xfe3tet,&xsi4tet);
-    *dgds0 = 0.5*Rgas*T*(log(xfe3m1)-log(xal3m1)+log(xal3tet)-log(xfe3tet)) +                ((HS1)-T*(SS1)+Pv*(VS1)) +                ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*r0 +                ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*r1 +                ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*r2 +                ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*r3 +                ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*r4 +                ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*r5 +                ((HS1S1)-T*(SS1S1)+Pv*(VS1S1))*s0*2.0 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s1;
-    *dgds1 = 0.5*Rgas*T*(log(xmg2m1)-log(xfe2m1)+log(xfe2m2)-log(xmg2m2)) +                ((HS2)-T*(GH_cpx_SS2)+Pv*(VS2)) +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*r0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*r1 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*r2 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*r3 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*r4 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*r5 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s0 +                ((HS2S2)-T*(SS2S2)+Pv*(VS2S2))*s1*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*r0 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*r1 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*r2 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*r3 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*r4 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*r5 +                ((HX2S2S2)+Pv*(VX2S2S2))*r0*s1*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*r1 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*r2 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*r3 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*r4 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*r5 +                ((HX3S2S2)+Pv*(VX3S2S2))*r1*s1*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*r2 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*r3 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*r4 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*r5 +                ((HX4S2S2)+Pv*(VX4S2S2))*r2*s1*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*r3 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*r4 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*r5 +                ((HX5S2S2)+Pv*(VX5S2S2))*r3*s1*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*r4 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*r5 +                ((HX6S2S2)+Pv*(VX6S2S2))*r4*s1*2.0 +                ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*r5 +                ((HX7S2S2)+Pv*(VX7S2S2))*r5*s1*2.0;
+    *dgds0 = 0.5*Rgas*T*(creal(clog(xfe3m1))-creal(clog(xal3m1))+creal(clog(xal3tet))-creal(clog(xfe3tet))) +                ((HS1)-T*(SS1)+Pv*(VS1)) +                ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*r0 +                ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*r1 +                ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*r2 +                ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*r3 +                ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*r4 +                ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*r5 +                ((HS1S1)-T*(SS1S1)+Pv*(VS1S1))*s0*2.0 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s1;
+    *dgds1 = 0.5*Rgas*T*(creal(clog(xmg2m1))-creal(clog(xfe2m1))+creal(clog(xfe2m2))-creal(clog(xmg2m2))) +                ((HS2)-T*(GH_cpx_SS2)+Pv*(VS2)) +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*r0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*r1 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*r2 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*r3 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*r4 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*r5 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s0 +                ((HS2S2)-T*(SS2S2)+Pv*(VS2S2))*s1*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*r0 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*r1 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*r2 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*r3 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*r4 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*r5 +                ((HX2S2S2)+Pv*(VX2S2S2))*r0*s1*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*r1 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*r2 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*r3 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*r4 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*r5 +                ((HX3S2S2)+Pv*(VX3S2S2))*r1*s1*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*r2 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*r3 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*r4 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*r5 +                ((HX4S2S2)+Pv*(VX4S2S2))*r2*s1*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*r3 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*r4 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*r5 +                ((HX5S2S2)+Pv*(VX5S2S2))*r3*s1*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*r4 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*r5 +                ((HX6S2S2)+Pv*(VX6S2S2))*r4*s1*2.0 +                ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*r5 +                ((HX7S2S2)+Pv*(VX7S2S2))*r5*s1*2.0;
 }
 
 static void GH_cpx_bounds_s0(double r1,double r2,double r3,double r4,double eps,double *lo,double *hi){
@@ -2935,7 +2936,7 @@ static double GH_cpx_G_at(double r0,double r1,double r2,double r3,double r4,doub
     GH_cpx_site_fracs(r0,r1,r2,r3,r4,r5,s0,s1,&xal3m1,&xfe2m1,&xfe3m1,&xmg2m1,&xti4m1,&xca2m2,&xfe2m2,&xmg2m2,&xna1m2,&xal3tet,&xfe3tet,&xsi4tet);
     double xm1_MgFeNoTi,xm1_notTi,xm1_MgFe,xtet_notSi,xrest_notNa,xm1_notMgFe,xm2_notNa;
     GH_cpx_composites(xmg2m1,xfe2m1,xti4m1,xna1m2,xsi4tet,&xm1_MgFeNoTi,&xm1_notTi,&xm1_MgFe,&xtet_notSi,&xrest_notNa,&xm1_notMgFe,&xm2_notNa);
-    double SIC = -Rgas*(xmg2m1*log(xmg2m1)                + xfe2m1*log(xfe2m1)                + xal3m1*log(xal3m1)                + xfe3m1*log(xfe3m1)                + xti4m1*log(xti4m1)                + (xm1_MgFeNoTi)*log(xm1_MgFeNoTi)                - (xm1_notTi)*log(xm1_notTi)                - (xm1_MgFe)*log(xm1_MgFe)                - 2.0*(xtet_notSi)*log(xtet_notSi)                + 2.0*xal3tet*log(xal3tet)                + 2.0*xfe3tet*log(xfe3tet)                + xca2m2*log(xca2m2)                + xna1m2*log(xna1m2)                + xmg2m2*log(xmg2m2)                + xfe2m2*log(xfe2m2)                + (xrest_notNa)*log(xrest_notNa)                - (xm1_notMgFe)*log(xm1_notMgFe)                - (xm2_notNa)*log(xm2_notNa) );
+    double SIC = -Rgas*(xmg2m1*creal(clog(xmg2m1))                + xfe2m1*creal(clog(xfe2m1))                + xal3m1*creal(clog(xal3m1))                + xfe3m1*creal(clog(xfe3m1))                + xti4m1*creal(clog(xti4m1))                + (xm1_MgFeNoTi)*creal(clog(xm1_MgFeNoTi))                - (xm1_notTi)*creal(clog(xm1_notTi))                - (xm1_MgFe)*creal(clog(xm1_MgFe))                - 2.0*(xtet_notSi)*creal(clog(xtet_notSi))                + 2.0*xal3tet*creal(clog(xal3tet))                + 2.0*xfe3tet*creal(clog(xfe3tet))                + xca2m2*creal(clog(xca2m2))                + xna1m2*creal(clog(xna1m2))                + xmg2m2*creal(clog(xmg2m2))                + xfe2m2*creal(clog(xfe2m2))                + (xrest_notNa)*creal(clog(xrest_notNa))                - (xm1_notMgFe)*creal(clog(xm1_notMgFe))                - (xm2_notNa)*creal(clog(xm2_notNa)) );
     return -T*(SIC) + (H0)-T*(S0)+Pv*(V0) +              ((HX2)-T*(SX2)+Pv*(VX2))*r0 +              ((HX3)-T*(SX3)+Pv*(VX3))*r1 +              ((HX4)-T*(SX4)+Pv*(VX4))*r2 +              ((HX5)-T*(SX5)+Pv*(VX5))*r3 +              ((HX6)-T*(SX6)+Pv*(VX6))*r4 +              ((HX7)-T*(SX7)+Pv*(VX7))*r5 +              ((HS1)-T*(SS1)+Pv*(VS1))*s0 +              ((HS2)-T*(GH_cpx_SS2)+Pv*(VS2))*s1 +              ((HX2X2)-T*(SX2X2)+Pv*(VX2X2))*r0*r0 +              ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r0*r1 +              ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r0*r2 +              ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r0*r3 +              ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r0*r4 +              ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r0*r5 +              ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*r0*s0 +              ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*r0*s1 +              ((HX3X3)-T*(SX3X3)+Pv*(VX3X3))*r1*r1 +              ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r1*r2 +              ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r1*r3 +              ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r1*r4 +              ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r1*r5 +              ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*r1*s0 +              ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*r1*s1 +              ((HX4X4)-T*(SX4X4)+Pv*(VX4X4))*r2*r2 +              ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r2*r3 +              ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r2*r4 +              ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r2*r5 +              ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*r2*s0 +              ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*r2*s1 +              ((HX5X5)-T*(SX5X5)+Pv*(VX5X5))*r3*r3 +              ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r3*r4 +              ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r3*r5 +              ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*r3*s0 +              ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*r3*s1 +              ((HX6X6)-T*(SX6X6)+Pv*(VX6X6))*r4*r4 +              ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r4*r5 +              ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*r4*s0 +              ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*r4*s1 +              ((HX7X7)-T*(SX7X7)+Pv*(VX7X7))*r5*r5 +              ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*r5*s0 +              ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*r5*s1 +              ((HS1S1)-T*(SS1S1)+Pv*(VS1S1))*s0*s0 +              ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s0*s1 +              ((HS2S2)-T*(SS2S2)+Pv*(VS2S2))*s1*s1 +              ((HX2X2X7)+Pv*(VX2X2X7))*r0*r0*r5 +              ((HX2X2S2)+Pv*(VX2X2S2))*r0*r0*s1 +              ((HX2X3X7)+Pv*(VX2X3X7))*r0*r1*r5 +              ((HX2X3S2)+Pv*(VX2X3S2))*r0*r1*s1 +              ((HX2X4X7)+Pv*(VX2X4X7))*r0*r2*r5 +              ((HX2X4S2)+Pv*(VX2X4S2))*r0*r2*s1 +              ((HX2X5X7)+Pv*(VX2X5X7))*r0*r3*r5 +              ((HX2X5S2)+Pv*(VX2X5S2))*r0*r3*s1 +              ((HX2X6X7)+Pv*(VX2X6X7))*r0*r4*r5 +              ((HX2X6S2)+Pv*(VX2X6S2))*r0*r4*s1 +              ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r0*r5*r5 +              ((HX2X7S2)+Pv*(VX2X7S2))*r0*r5*s1 +              ((HX2S2S2)+Pv*(VX2S2S2))*r0*s1*s1 +              ((HX3X3X7)+Pv*(VX3X3X7))*r1*r1*r5 +              ((HX3X3S2)+Pv*(VX3X3S2))*r1*r1*s1 +              ((HX3X4X7)+Pv*(VX3X4X7))*r1*r2*r5 +              ((HX3X4S2)+Pv*(VX3X4S2))*r1*r2*s1 +              ((HX3X5X7)+Pv*(VX3X5X7))*r1*r3*r5 +              ((HX3X5S2)+Pv*(VX3X5S2))*r1*r3*s1 +              ((HX3X6X7)+Pv*(VX3X6X7))*r1*r4*r5 +              ((HX3X6S2)+Pv*(VX3X6S2))*r1*r4*s1 +              ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r1*r5*r5 +              ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*r5*s1 +              ((HX3S2S2)+Pv*(VX3S2S2))*r1*s1*s1 +              ((HX4X4X7)+Pv*(VX4X4X7))*r2*r2*r5 +              ((HX4X4S2)+Pv*(VX4X4S2))*r2*r2*s1 +              ((HX4X5X7)+Pv*(VX4X5X7))*r2*r3*r5 +              ((HX4X5S2)+Pv*(VX4X5S2))*r2*r3*s1 +              ((HX4X6X7)+Pv*(VX4X6X7))*r2*r4*r5 +              ((HX4X6S2)+Pv*(VX4X6S2))*r2*r4*s1 +              ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r2*r5*r5 +              ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*r5*s1 +              ((HX4S2S2)+Pv*(VX4S2S2))*r2*s1*s1 +              ((HX5X5X7)+Pv*(VX5X5X7))*r3*r3*r5 +              ((HX5X5S2)+Pv*(VX5X5S2))*r3*r3*s1 +              ((HX5X6X7)+Pv*(VX5X6X7))*r3*r4*r5 +              ((HX5X6S2)+Pv*(VX5X6S2))*r3*r4*s1 +              ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r3*r5*r5 +              ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*r5*s1 +              ((HX5S2S2)+Pv*(VX5S2S2))*r3*s1*s1 +              ((HX6X6X7)+Pv*(VX6X6X7))*r4*r4*r5 +              ((HX6X6S2)+Pv*(VX6X6S2))*r4*r4*s1 +              ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r4*r5*r5 +              ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*r5*s1 +              ((HX6S2S2)+Pv*(VX6S2S2))*r4*s1*s1 +              ((HX7X7X7)-T*(SX7X7X7)+Pv*(VX7X7X7))*r5*r5*r5 +              ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*r5*s1 +              ((HX7S2S2)+Pv*(VX7S2S2))*r5*s1*s1;
 }
 /* Solve the embedded order-parameter problem at a FIXED r-vector (used
@@ -2975,11 +2976,11 @@ static double GH_cpx_solve_and_G(double r0,double r1,double r2,double r3,double 
     fraction matters.
 */
 static double GH_cpx_pure_ES_dgds(double s,double T,double Rgas,double Pv){
-    return Rgas*T*(log(1.0+s)-log(1.0-s)) + (HS1) + (HX5S1) + (HS1S1)*s*2.0
+    return Rgas*T*(creal(clog(1.0+s))-creal(clog(1.0-s))) + (HS1) + (HX5S1) + (HS1S1)*s*2.0
          - T*((SS1)+(SX5S1)+(SS1S1)*s*2.0) + Pv*((VS1)+(VX5S1)+(VS1S1)*s*2.0);
 }
 static double GH_cpx_pure_ES_G_at_s(double s,double T,double Rgas,double Pv){
-    return Rgas*T*((1.0-s)*log(1.0-s) + (1.0+s)*log(1.0+s) - 2.0*log(2.0))
+    return Rgas*T*((1.0-s)*creal(clog(1.0-s)) + (1.0+s)*creal(clog(1.0+s)) - 2.0*creal(clog(2.0)))
          + (H0)+(HX5)+(HS1)*s+(HX5X5)+(HX5S1)*s+(HS1S1)*s*s
          - T*((S0)+(SX5)+(SS1)*s+(SX5X5)+(SX5S1)*s+(SS1S1)*s*s)
          + Pv*((V0)+(VX5)+(VS1)*s+(VX5X5)+(VS1S1)*s*s+(VX5S1)*s);
@@ -3024,12 +3025,12 @@ double obj_gh_cpx(unsigned n, const double *x, double *grad, void *SS_ref_db){
     double xm1_MgFeNoTi,xm1_notTi,xm1_MgFe,xtet_notSi,xrest_notNa,xm1_notMgFe,xm2_notNa;
     GH_cpx_composites(xmg2m1,xfe2m1,xti4m1,xna1m2,xsi4tet,&xm1_MgFeNoTi,&xm1_notTi,&xm1_MgFe,&xtet_notSi,&xrest_notNa,&xm1_notMgFe,&xm2_notNa);
 
-    double dgdr0 = Rgas*T*(log(xfe2m1) - log(xmg2m1)) +                ((HX2)-T*(SX2)+Pv*(VX2)) +                ((HX2X2)-T*(SX2X2)+Pv*(VX2X2))*r0*2.0 +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r1 +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r2 +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r3 +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r4 +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r5 +                ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*s0 +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r5*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*s1*2.0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r1*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r1*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r2*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r2*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r3*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r3*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r4*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r4*s1 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r5*r5 +                ((HX2X7S2)+Pv*(VX2X7S2))*r5*s1 +                ((HX2S2S2)+Pv*(VX2S2S2))*s1*s1;
-    double dgdr1 = Rgas*T*(0.5*log(xti4m1) - 0.5*log(xmg2m1) + 0.5*log(xm1_notTi)                  - log(xm1_MgFeNoTi) + 0.5*log(xm1_MgFe)                  + 0.5*log(xrest_notNa) - log(xtet_notSi)                  - 0.5*log(xm1_notMgFe) + log(xal3tet)) +                ((HX3)-T*(SX3)+Pv*(VX3)) +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r0 +                ((HX3X3)-T*(SX3X3)+Pv*(VX3X3))*r1*2.0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r2 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r3 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r4 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r5 +                ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*s0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*s1 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r5*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*s1*2.0 +                ((HX3X4X7)+Pv*(VX3X4X7))*r2*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r2*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r3*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r3*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r4*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r4*s1 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r5*r5 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r5*s1 +                ((HX3S2S2)+Pv*(VX3S2S2))*s1*s1;
-    double dgdr2 = Rgas*T*(0.5*log(xti4m1) - 0.5*log(xmg2m1) + 0.5*log(xm1_notTi)                  - log(xm1_MgFeNoTi) + 0.5*log(xm1_MgFe)                  + 0.5*log(xrest_notNa) - log(xtet_notSi)                  - 0.5*log(xm1_notMgFe) + log(xfe3tet)) +                ((HX4)-T*(SX4)+Pv*(VX4)) +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r1 +                ((HX4X4)-T*(SX4X4)+Pv*(VX4X4))*r2*2.0 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r3 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r4 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r5 +                ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*s0 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*s1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r5*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*s1*2.0 +                ((HX4X5X7)+Pv*(VX4X5X7))*r3*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r3*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r4*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r4*s1 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r5*r5 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r5*s1 +                ((HX4S2S2)+Pv*(VX4S2S2))*s1*s1;
-    double dgdr3 = Rgas*T*(0.5*log(xal3m1) + 0.5*log(xfe3m1) - log(xmg2m1)                  - log(xm1_MgFeNoTi) + log(xm1_MgFe)                  - log(xtet_notSi) + 0.5*log(xal3tet) + 0.5*log(xfe3tet)                  + log(xrest_notNa) - log(xm1_notMgFe)) +                ((HX5)-T*(SX5)+Pv*(VX5)) +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r0 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r1 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r2 +                ((HX5X5)-T*(SX5X5)+Pv*(VX5X5))*r3*2.0 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r4 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r5 +                ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*s0 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*s1 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r5*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*s1*2.0 +                ((HX5X6X7)+Pv*(VX5X6X7))*r4*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r4*s1 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r5*r5 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r5*s1 +                ((HX5S2S2)+Pv*(VX5S2S2))*s1*s1;
-    double dgdr4 = Rgas*T*(0.25*log(xal3m1) + 0.25*log(xfe3m1) - 0.5*log(xmg2m1)                  - 0.5*log(xm1_MgFeNoTi) + 0.5*log(xm1_MgFe)                  + 0.5*log(xtet_notSi) - 0.25*log(xal3tet)                  - 0.25*log(xfe3tet) - log(xca2m2) + log(xna1m2)                  - 0.5*log(xrest_notNa)                  - 0.5*log(xm1_notMgFe) + log(xm2_notNa)) +                ((HX6)-T*(SX6)+Pv*(VX6)) +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r0 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r1 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r2 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r3 +                ((HX6X6)-T*(SX6X6)+Pv*(VX6X6))*r4*2.0 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r5 +                ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*s0 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*s1 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r5*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*s1*2.0 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r5*r5 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r5*s1 +                ((HX6S2S2)+Pv*(VX6S2S2))*s1*s1;
-    double dgdr5 = 0.5*Rgas*T*(log(xmg2m1) - 2.0*log(xca2m2)                  + log(xmg2m2) + log(xfe2m2/xfe2m1)) +                ((HX7)-T*(SX7)+Pv*(VX7)) +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r0 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r1 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r2 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r3 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r4 +                ((HX7X7)-T*(SX7X7)+Pv*(VX7X7))*r5*2.0 +                ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*s0 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r2 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r3 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r4 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r0*r5*2.0 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r2 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r3 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r4 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r1*r5*2.0 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r2 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r3 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r4 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r2*r5*2.0 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r3 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r4 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r3*r5*2.0 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r4 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r4*r5*2.0 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*s1 +                ((HX7X7X7)-T*(SX7X7X7)+Pv*(VX7X7X7))*r5*r5*3.0 +                ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*s1*2.0 +                ((HX7S2S2)+Pv*(VX7S2S2))*s1*s1;
+    double dgdr0 = Rgas*T*(creal(clog(xfe2m1)) - creal(clog(xmg2m1))) +                ((HX2)-T*(SX2)+Pv*(VX2)) +                ((HX2X2)-T*(SX2X2)+Pv*(VX2X2))*r0*2.0 +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r1 +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r2 +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r3 +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r4 +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r5 +                ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*s0 +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r5*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*s1*2.0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r1*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r1*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r2*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r2*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r3*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r3*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r4*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r4*s1 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r5*r5 +                ((HX2X7S2)+Pv*(VX2X7S2))*r5*s1 +                ((HX2S2S2)+Pv*(VX2S2S2))*s1*s1;
+    double dgdr1 = Rgas*T*(0.5*creal(clog(xti4m1)) - 0.5*creal(clog(xmg2m1)) + 0.5*creal(clog(xm1_notTi))                  - creal(clog(xm1_MgFeNoTi)) + 0.5*creal(clog(xm1_MgFe))                  + 0.5*creal(clog(xrest_notNa)) - creal(clog(xtet_notSi))                  - 0.5*creal(clog(xm1_notMgFe)) + creal(clog(xal3tet))) +                ((HX3)-T*(SX3)+Pv*(VX3)) +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r0 +                ((HX3X3)-T*(SX3X3)+Pv*(VX3X3))*r1*2.0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r2 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r3 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r4 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r5 +                ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*s0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*s1 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r5*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*s1*2.0 +                ((HX3X4X7)+Pv*(VX3X4X7))*r2*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r2*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r3*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r3*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r4*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r4*s1 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r5*r5 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r5*s1 +                ((HX3S2S2)+Pv*(VX3S2S2))*s1*s1;
+    double dgdr2 = Rgas*T*(0.5*creal(clog(xti4m1)) - 0.5*creal(clog(xmg2m1)) + 0.5*creal(clog(xm1_notTi))                  - creal(clog(xm1_MgFeNoTi)) + 0.5*creal(clog(xm1_MgFe))                  + 0.5*creal(clog(xrest_notNa)) - creal(clog(xtet_notSi))                  - 0.5*creal(clog(xm1_notMgFe)) + creal(clog(xfe3tet))) +                ((HX4)-T*(SX4)+Pv*(VX4)) +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r1 +                ((HX4X4)-T*(SX4X4)+Pv*(VX4X4))*r2*2.0 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r3 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r4 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r5 +                ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*s0 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*s1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r5*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*s1*2.0 +                ((HX4X5X7)+Pv*(VX4X5X7))*r3*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r3*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r4*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r4*s1 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r5*r5 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r5*s1 +                ((HX4S2S2)+Pv*(VX4S2S2))*s1*s1;
+    double dgdr3 = Rgas*T*(0.5*creal(clog(xal3m1)) + 0.5*creal(clog(xfe3m1)) - creal(clog(xmg2m1))                  - creal(clog(xm1_MgFeNoTi)) + creal(clog(xm1_MgFe))                  - creal(clog(xtet_notSi)) + 0.5*creal(clog(xal3tet)) + 0.5*creal(clog(xfe3tet))                  + creal(clog(xrest_notNa)) - creal(clog(xm1_notMgFe))) +                ((HX5)-T*(SX5)+Pv*(VX5)) +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r0 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r1 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r2 +                ((HX5X5)-T*(SX5X5)+Pv*(VX5X5))*r3*2.0 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r4 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r5 +                ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*s0 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*s1 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r5*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*s1*2.0 +                ((HX5X6X7)+Pv*(VX5X6X7))*r4*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r4*s1 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r5*r5 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r5*s1 +                ((HX5S2S2)+Pv*(VX5S2S2))*s1*s1;
+    double dgdr4 = Rgas*T*(0.25*creal(clog(xal3m1)) + 0.25*creal(clog(xfe3m1)) - 0.5*creal(clog(xmg2m1))                  - 0.5*creal(clog(xm1_MgFeNoTi)) + 0.5*creal(clog(xm1_MgFe))                  + 0.5*creal(clog(xtet_notSi)) - 0.25*creal(clog(xal3tet))                  - 0.25*creal(clog(xfe3tet)) - creal(clog(xca2m2)) + creal(clog(xna1m2))                  - 0.5*creal(clog(xrest_notNa))                  - 0.5*creal(clog(xm1_notMgFe)) + creal(clog(xm2_notNa))) +                ((HX6)-T*(SX6)+Pv*(VX6)) +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r0 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r1 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r2 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r3 +                ((HX6X6)-T*(SX6X6)+Pv*(VX6X6))*r4*2.0 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r5 +                ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*s0 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*s1 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r5*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*s1*2.0 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r5*r5 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r5*s1 +                ((HX6S2S2)+Pv*(VX6S2S2))*s1*s1;
+    double dgdr5 = 0.5*Rgas*T*(creal(clog(xmg2m1)) - 2.0*creal(clog(xca2m2))                  + creal(clog(xmg2m2)) + creal(clog(xfe2m2/xfe2m1))) +                ((HX7)-T*(SX7)+Pv*(VX7)) +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r0 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r1 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r2 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r3 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r4 +                ((HX7X7)-T*(SX7X7)+Pv*(VX7X7))*r5*2.0 +                ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*s0 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r2 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r3 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r4 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r0*r5*2.0 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r2 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r3 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r4 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r1*r5*2.0 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r2 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r3 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r4 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r2*r5*2.0 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r3 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r4 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r3*r5*2.0 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r4 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r4*r5*2.0 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*s1 +                ((HX7X7X7)-T*(SX7X7X7)+Pv*(VX7X7X7))*r5*r5*3.0 +                ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*s1*2.0 +                ((HX7S2S2)+Pv*(VX7S2S2))*s1*s1;
 
     /* ends[]: see GH_cpx_pure_ES_G's header comment - DI/EN/HD/CA/CF/JD are
        exactly 0 (proven, T,P-independent), only essenite is nonzero and
@@ -3171,8 +3172,8 @@ static void GH_opx_dgds(double r0,double r1,double r2,double r3,double r4,double
     static const double SX6X7S2_OPX = 0, SX7X7S2_OPX = 0;
     double xal3m1,xfe2m1,xfe3m1,xmg2m1,xti4m1,xca2m2,xfe2m2,xmg2m2,xna1m2,xal3tet,xfe3tet,xsi4tet;
     GH_cpx_site_fracs(r0,r1,r2,r3,r4,r5,s0,s1,&xal3m1,&xfe2m1,&xfe3m1,&xmg2m1,&xti4m1,&xca2m2,&xfe2m2,&xmg2m2,&xna1m2,&xal3tet,&xfe3tet,&xsi4tet);
-    *dgds0 = 0.5*Rgas*T*(log(xfe3m1)-log(xal3m1)+log(xal3tet)-log(xfe3tet)) +                ((HS1)-T*(SS1_OPX)+Pv*(VS1)) +                ((HX2S1)-T*(SX2S1_OPX)+Pv*(VX2S1))*r0 +                ((HX3S1)-T*(SX3S1_OPX)+Pv*(VX3S1))*r1 +                ((HX4S1)-T*(SX4S1_OPX)+Pv*(VX4S1))*r2 +                ((HX5S1)-T*(SX5S1_OPX)+Pv*(VX5S1))*r3 +                ((HX6S1)-T*(SX6S1_OPX)+Pv*(VX6S1))*r4 +                ((HX7S1)-T*(SX7S1_OPX)+Pv*(VX7S1))*r5 +                ((HS1S1)-T*(SS1S1)+Pv*(VS1S1))*s0*2.0 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s1;
-    *dgds1 = 0.5*Rgas*T*(log(xmg2m1)-log(xfe2m1)+log(xfe2m2)-log(xmg2m2)) +                ((HS2)-T*(GH_opx_SS2)+Pv*(VS2)) +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*r0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*r1 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*r2 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*r3 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*r4 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*r5 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s0 +                ((HS2S2)-T*(SS2S2_OPX)+Pv*(VS2S2))*s1*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*r0 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*r1 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*r2 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*r3 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*r4 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*r5 +                ((HX2S2S2)+Pv*(VX2S2S2))*r0*s1*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*r1 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*r2 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*r3 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*r4 +                ((HX3X7S2)-T*(SX3X7S2_OPX)+Pv*(VX3X7S2))*r1*r5 +                ((HX3S2S2)+Pv*(VX3S2S2))*r1*s1*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*r2 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*r3 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*r4 +                ((HX4X7S2)-T*(SX4X7S2_OPX)+Pv*(VX4X7S2))*r2*r5 +                ((HX4S2S2)+Pv*(VX4S2S2))*r2*s1*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*r3 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*r4 +                ((HX5X7S2)-T*(SX5X7S2_OPX)+Pv*(VX5X7S2))*r3*r5 +                ((HX5S2S2)+Pv*(VX5S2S2))*r3*s1*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*r4 +                ((HX6X7S2)-T*(SX6X7S2_OPX)+Pv*(VX6X7S2))*r4*r5 +                ((HX6S2S2)+Pv*(VX6S2S2))*r4*s1*2.0 +                ((HX7X7S2)-T*(SX7X7S2_OPX)+Pv*(VX7X7S2))*r5*r5 +                ((HX7S2S2)+Pv*(VX7S2S2))*r5*s1*2.0;
+    *dgds0 = 0.5*Rgas*T*(creal(clog(xfe3m1))-creal(clog(xal3m1))+creal(clog(xal3tet))-creal(clog(xfe3tet))) +                ((HS1)-T*(SS1_OPX)+Pv*(VS1)) +                ((HX2S1)-T*(SX2S1_OPX)+Pv*(VX2S1))*r0 +                ((HX3S1)-T*(SX3S1_OPX)+Pv*(VX3S1))*r1 +                ((HX4S1)-T*(SX4S1_OPX)+Pv*(VX4S1))*r2 +                ((HX5S1)-T*(SX5S1_OPX)+Pv*(VX5S1))*r3 +                ((HX6S1)-T*(SX6S1_OPX)+Pv*(VX6S1))*r4 +                ((HX7S1)-T*(SX7S1_OPX)+Pv*(VX7S1))*r5 +                ((HS1S1)-T*(SS1S1)+Pv*(VS1S1))*s0*2.0 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s1;
+    *dgds1 = 0.5*Rgas*T*(creal(clog(xmg2m1))-creal(clog(xfe2m1))+creal(clog(xfe2m2))-creal(clog(xmg2m2))) +                ((HS2)-T*(GH_opx_SS2)+Pv*(VS2)) +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*r0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*r1 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*r2 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*r3 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*r4 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*r5 +                ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s0 +                ((HS2S2)-T*(SS2S2_OPX)+Pv*(VS2S2))*s1*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*r0 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*r1 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*r2 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*r3 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*r4 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*r5 +                ((HX2S2S2)+Pv*(VX2S2S2))*r0*s1*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*r1 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*r2 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*r3 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*r4 +                ((HX3X7S2)-T*(SX3X7S2_OPX)+Pv*(VX3X7S2))*r1*r5 +                ((HX3S2S2)+Pv*(VX3S2S2))*r1*s1*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*r2 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*r3 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*r4 +                ((HX4X7S2)-T*(SX4X7S2_OPX)+Pv*(VX4X7S2))*r2*r5 +                ((HX4S2S2)+Pv*(VX4S2S2))*r2*s1*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*r3 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*r4 +                ((HX5X7S2)-T*(SX5X7S2_OPX)+Pv*(VX5X7S2))*r3*r5 +                ((HX5S2S2)+Pv*(VX5S2S2))*r3*s1*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*r4 +                ((HX6X7S2)-T*(SX6X7S2_OPX)+Pv*(VX6X7S2))*r4*r5 +                ((HX6S2S2)+Pv*(VX6S2S2))*r4*s1*2.0 +                ((HX7X7S2)-T*(SX7X7S2_OPX)+Pv*(VX7X7S2))*r5*r5 +                ((HX7S2S2)+Pv*(VX7S2S2))*r5*s1*2.0;
 }
 
 static void GH_opx_d2gds(double r0,double r1,double r2,double r3,double r4,double r5,double s0,double s1,
@@ -3316,7 +3317,7 @@ static double GH_opx_G_at(double r0,double r1,double r2,double r3,double r4,doub
     GH_cpx_site_fracs(r0,r1,r2,r3,r4,r5,s0,s1,&xal3m1,&xfe2m1,&xfe3m1,&xmg2m1,&xti4m1,&xca2m2,&xfe2m2,&xmg2m2,&xna1m2,&xal3tet,&xfe3tet,&xsi4tet);
     double xm1_MgFeNoTi,xm1_notTi,xm1_MgFe,xtet_notSi,xrest_notNa,xm1_notMgFe,xm2_notNa;
     GH_cpx_composites(xmg2m1,xfe2m1,xti4m1,xna1m2,xsi4tet,&xm1_MgFeNoTi,&xm1_notTi,&xm1_MgFe,&xtet_notSi,&xrest_notNa,&xm1_notMgFe,&xm2_notNa);
-    double SIC = -Rgas*(xmg2m1*log(xmg2m1)                + xfe2m1*log(xfe2m1)                + xal3m1*log(xal3m1)                + xfe3m1*log(xfe3m1)                + xti4m1*log(xti4m1)                + (xm1_MgFeNoTi)*log(xm1_MgFeNoTi)                - (xm1_notTi)*log(xm1_notTi)                - (xm1_MgFe)*log(xm1_MgFe)                - 2.0*(xtet_notSi)*log(xtet_notSi)                + 2.0*xal3tet*log(xal3tet)                + 2.0*xfe3tet*log(xfe3tet)                + xca2m2*log(xca2m2)                + xna1m2*log(xna1m2)                + xmg2m2*log(xmg2m2)                + xfe2m2*log(xfe2m2)                + (xrest_notNa)*log(xrest_notNa)                - (xm1_notMgFe)*log(xm1_notMgFe)                - (xm2_notNa)*log(xm2_notNa) );
+    double SIC = -Rgas*(xmg2m1*creal(clog(xmg2m1))                + xfe2m1*creal(clog(xfe2m1))                + xal3m1*creal(clog(xal3m1))                + xfe3m1*creal(clog(xfe3m1))                + xti4m1*creal(clog(xti4m1))                + (xm1_MgFeNoTi)*creal(clog(xm1_MgFeNoTi))                - (xm1_notTi)*creal(clog(xm1_notTi))                - (xm1_MgFe)*creal(clog(xm1_MgFe))                - 2.0*(xtet_notSi)*creal(clog(xtet_notSi))                + 2.0*xal3tet*creal(clog(xal3tet))                + 2.0*xfe3tet*creal(clog(xfe3tet))                + xca2m2*creal(clog(xca2m2))                + xna1m2*creal(clog(xna1m2))                + xmg2m2*creal(clog(xmg2m2))                + xfe2m2*creal(clog(xfe2m2))                + (xrest_notNa)*creal(clog(xrest_notNa))                - (xm1_notMgFe)*creal(clog(xm1_notMgFe))                - (xm2_notNa)*creal(clog(xm2_notNa)) );
     return -T*(SIC) + (H0)-T*(S0)+Pv*(V0) +              ((HX2)-T*(SX2)+Pv*(VX2))*r0 +              ((HX3)-T*(SX3)+Pv*(VX3))*r1 +              ((HX4)-T*(SX4)+Pv*(VX4))*r2 +              ((HX5)-T*(SX5)+Pv*(VX5))*r3 +              ((HX6)-T*(SX6)+Pv*(VX6))*r4 +              ((HX7)-T*(SX7)+Pv*(VX7))*r5 +              ((HS1)-T*(SS1)+Pv*(VS1))*s0 +              ((HS2)-T*(GH_opx_SS2)+Pv*(VS2))*s1 +              ((HX2X2)-T*(SX2X2)+Pv*(VX2X2))*r0*r0 +              ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r0*r1 +              ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r0*r2 +              ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r0*r3 +              ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r0*r4 +              ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r0*r5 +              ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*r0*s0 +              ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*r0*s1 +              ((HX3X3)-T*(SX3X3)+Pv*(VX3X3))*r1*r1 +              ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r1*r2 +              ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r1*r3 +              ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r1*r4 +              ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r1*r5 +              ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*r1*s0 +              ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*r1*s1 +              ((HX4X4)-T*(SX4X4)+Pv*(VX4X4))*r2*r2 +              ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r2*r3 +              ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r2*r4 +              ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r2*r5 +              ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*r2*s0 +              ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*r2*s1 +              ((HX5X5)-T*(SX5X5)+Pv*(VX5X5))*r3*r3 +              ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r3*r4 +              ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r3*r5 +              ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*r3*s0 +              ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*r3*s1 +              ((HX6X6)-T*(SX6X6)+Pv*(VX6X6))*r4*r4 +              ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r4*r5 +              ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*r4*s0 +              ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*r4*s1 +              ((HX7X7)-T*(SX7X7)+Pv*(VX7X7))*r5*r5 +              ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*r5*s0 +              ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*r5*s1 +              ((HS1S1)-T*(SS1S1)+Pv*(VS1S1))*s0*s0 +              ((HS1S2)-T*(SS1S2)+Pv*(VS1S2))*s0*s1 +              ((HS2S2)-T*(SS2S2)+Pv*(VS2S2))*s1*s1 +              ((HX2X2X7)+Pv*(VX2X2X7))*r0*r0*r5 +              ((HX2X2S2)+Pv*(VX2X2S2))*r0*r0*s1 +              ((HX2X3X7)+Pv*(VX2X3X7))*r0*r1*r5 +              ((HX2X3S2)+Pv*(VX2X3S2))*r0*r1*s1 +              ((HX2X4X7)+Pv*(VX2X4X7))*r0*r2*r5 +              ((HX2X4S2)+Pv*(VX2X4S2))*r0*r2*s1 +              ((HX2X5X7)+Pv*(VX2X5X7))*r0*r3*r5 +              ((HX2X5S2)+Pv*(VX2X5S2))*r0*r3*s1 +              ((HX2X6X7)+Pv*(VX2X6X7))*r0*r4*r5 +              ((HX2X6S2)+Pv*(VX2X6S2))*r0*r4*s1 +              ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r0*r5*r5 +              ((HX2X7S2)+Pv*(VX2X7S2))*r0*r5*s1 +              ((HX2S2S2)+Pv*(VX2S2S2))*r0*s1*s1 +              ((HX3X3X7)+Pv*(VX3X3X7))*r1*r1*r5 +              ((HX3X3S2)+Pv*(VX3X3S2))*r1*r1*s1 +              ((HX3X4X7)+Pv*(VX3X4X7))*r1*r2*r5 +              ((HX3X4S2)+Pv*(VX3X4S2))*r1*r2*s1 +              ((HX3X5X7)+Pv*(VX3X5X7))*r1*r3*r5 +              ((HX3X5S2)+Pv*(VX3X5S2))*r1*r3*s1 +              ((HX3X6X7)+Pv*(VX3X6X7))*r1*r4*r5 +              ((HX3X6S2)+Pv*(VX3X6S2))*r1*r4*s1 +              ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r1*r5*r5 +              ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*r5*s1 +              ((HX3S2S2)+Pv*(VX3S2S2))*r1*s1*s1 +              ((HX4X4X7)+Pv*(VX4X4X7))*r2*r2*r5 +              ((HX4X4S2)+Pv*(VX4X4S2))*r2*r2*s1 +              ((HX4X5X7)+Pv*(VX4X5X7))*r2*r3*r5 +              ((HX4X5S2)+Pv*(VX4X5S2))*r2*r3*s1 +              ((HX4X6X7)+Pv*(VX4X6X7))*r2*r4*r5 +              ((HX4X6S2)+Pv*(VX4X6S2))*r2*r4*s1 +              ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r2*r5*r5 +              ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*r5*s1 +              ((HX4S2S2)+Pv*(VX4S2S2))*r2*s1*s1 +              ((HX5X5X7)+Pv*(VX5X5X7))*r3*r3*r5 +              ((HX5X5S2)+Pv*(VX5X5S2))*r3*r3*s1 +              ((HX5X6X7)+Pv*(VX5X6X7))*r3*r4*r5 +              ((HX5X6S2)+Pv*(VX5X6S2))*r3*r4*s1 +              ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r3*r5*r5 +              ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*r5*s1 +              ((HX5S2S2)+Pv*(VX5S2S2))*r3*s1*s1 +              ((HX6X6X7)+Pv*(VX6X6X7))*r4*r4*r5 +              ((HX6X6S2)+Pv*(VX6X6S2))*r4*r4*s1 +              ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r4*r5*r5 +              ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*r5*s1 +              ((HX6S2S2)+Pv*(VX6S2S2))*r4*s1*s1 +              ((HX7X7X7)-T*(SX7X7X7)+Pv*(VX7X7X7))*r5*r5*r5 +              ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*r5*s1 +              ((HX7S2S2)+Pv*(VX7S2S2))*r5*s1*s1;
 }
 static double GH_opx_solve_and_G(double r0,double r1,double r2,double r3,double r4,double r5,
@@ -3539,12 +3540,12 @@ double obj_gh_opx(unsigned n, const double *x, double *grad, void *SS_ref_db){
     static const double VX6X7S2 = -0.032426, VX6X7X7 = 0.003661, VX6S2S2 = 0.03922500000000001;
     static const double VX7X7S2 = 0.012552000000000008, VX7X7X7 = -0.043932, VX7S2S2 = 0.15690000000000004;
 
-    double dgdr0 = Rgas*T*(log(xfe2m1) - log(xmg2m1)) +                ((HX2)-T*(SX2)+Pv*(VX2)) +                ((HX2X2)-T*(SX2X2)+Pv*(VX2X2))*r0*2.0 +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r1 +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r2 +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r3 +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r4 +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r5 +                ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*s0 +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r5*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*s1*2.0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r1*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r1*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r2*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r2*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r3*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r3*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r4*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r4*s1 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r5*r5 +                ((HX2X7S2)+Pv*(VX2X7S2))*r5*s1 +                ((HX2S2S2)+Pv*(VX2S2S2))*s1*s1;
-    double dgdr1 = Rgas*T*(0.5*log(xti4m1) - 0.5*log(xmg2m1) + 0.5*log(xm1_notTi)                  - log(xm1_MgFeNoTi) + 0.5*log(xm1_MgFe)                  + 0.5*log(xrest_notNa) - log(xtet_notSi)                  - 0.5*log(xm1_notMgFe) + log(xal3tet)) +                ((HX3)-T*(SX3)+Pv*(VX3)) +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r0 +                ((HX3X3)-T*(SX3X3)+Pv*(VX3X3))*r1*2.0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r2 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r3 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r4 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r5 +                ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*s0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*s1 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r5*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*s1*2.0 +                ((HX3X4X7)+Pv*(VX3X4X7))*r2*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r2*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r3*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r3*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r4*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r4*s1 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r5*r5 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r5*s1 +                ((HX3S2S2)+Pv*(VX3S2S2))*s1*s1;
-    double dgdr2 = Rgas*T*(0.5*log(xti4m1) - 0.5*log(xmg2m1) + 0.5*log(xm1_notTi)                  - log(xm1_MgFeNoTi) + 0.5*log(xm1_MgFe)                  + 0.5*log(xrest_notNa) - log(xtet_notSi)                  - 0.5*log(xm1_notMgFe) + log(xfe3tet)) +                ((HX4)-T*(SX4)+Pv*(VX4)) +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r1 +                ((HX4X4)-T*(SX4X4)+Pv*(VX4X4))*r2*2.0 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r3 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r4 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r5 +                ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*s0 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*s1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r5*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*s1*2.0 +                ((HX4X5X7)+Pv*(VX4X5X7))*r3*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r3*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r4*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r4*s1 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r5*r5 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r5*s1 +                ((HX4S2S2)+Pv*(VX4S2S2))*s1*s1;
-    double dgdr3 = Rgas*T*(0.5*log(xal3m1) + 0.5*log(xfe3m1) - log(xmg2m1)                  - log(xm1_MgFeNoTi) + log(xm1_MgFe)                  - log(xtet_notSi) + 0.5*log(xal3tet) + 0.5*log(xfe3tet)                  + log(xrest_notNa) - log(xm1_notMgFe)) +                ((HX5)-T*(SX5)+Pv*(VX5)) +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r0 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r1 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r2 +                ((HX5X5)-T*(SX5X5)+Pv*(VX5X5))*r3*2.0 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r4 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r5 +                ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*s0 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*s1 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r5*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*s1*2.0 +                ((HX5X6X7)+Pv*(VX5X6X7))*r4*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r4*s1 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r5*r5 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r5*s1 +                ((HX5S2S2)+Pv*(VX5S2S2))*s1*s1;
-    double dgdr4 = Rgas*T*(0.25*log(xal3m1) + 0.25*log(xfe3m1) - 0.5*log(xmg2m1)                  - 0.5*log(xm1_MgFeNoTi) + 0.5*log(xm1_MgFe)                  + 0.5*log(xtet_notSi) - 0.25*log(xal3tet)                  - 0.25*log(xfe3tet) - log(xca2m2) + log(xna1m2)                  - 0.5*log(xrest_notNa)                  - 0.5*log(xm1_notMgFe) + log(xm2_notNa)) +                ((HX6)-T*(SX6)+Pv*(VX6)) +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r0 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r1 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r2 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r3 +                ((HX6X6)-T*(SX6X6)+Pv*(VX6X6))*r4*2.0 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r5 +                ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*s0 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*s1 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r5*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*s1*2.0 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r5*r5 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r5*s1 +                ((HX6S2S2)+Pv*(VX6S2S2))*s1*s1;
-    double dgdr5 = 0.5*Rgas*T*(log(xmg2m1) - 2.0*log(xca2m2)                  + log(xmg2m2) + log(xfe2m2/xfe2m1)) +                ((HX7)-T*(SX7)+Pv*(VX7)) +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r0 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r1 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r2 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r3 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r4 +                ((HX7X7)-T*(SX7X7)+Pv*(VX7X7))*r5*2.0 +                ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*s0 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r2 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r3 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r4 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r0*r5*2.0 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r2 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r3 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r4 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r1*r5*2.0 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r2 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r3 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r4 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r2*r5*2.0 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r3 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r4 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r3*r5*2.0 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r4 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r4*r5*2.0 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*s1 +                ((HX7X7X7)-T*(SX7X7X7)+Pv*(VX7X7X7))*r5*r5*3.0 +                ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*s1*2.0 +                ((HX7S2S2)+Pv*(VX7S2S2))*s1*s1;
+    double dgdr0 = Rgas*T*(creal(clog(xfe2m1)) - creal(clog(xmg2m1))) +                ((HX2)-T*(SX2)+Pv*(VX2)) +                ((HX2X2)-T*(SX2X2)+Pv*(VX2X2))*r0*2.0 +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r1 +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r2 +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r3 +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r4 +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r5 +                ((HX2S1)-T*(SX2S1)+Pv*(VX2S1))*s0 +                ((HX2S2)-T*(SX2S2)+Pv*(VX2S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r5*2.0 +                ((HX2X2S2)+Pv*(VX2X2S2))*r0*s1*2.0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r1*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r1*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r2*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r2*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r3*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r3*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r4*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r4*s1 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r5*r5 +                ((HX2X7S2)+Pv*(VX2X7S2))*r5*s1 +                ((HX2S2S2)+Pv*(VX2S2S2))*s1*s1;
+    double dgdr1 = Rgas*T*(0.5*creal(clog(xti4m1)) - 0.5*creal(clog(xmg2m1)) + 0.5*creal(clog(xm1_notTi))                  - creal(clog(xm1_MgFeNoTi)) + 0.5*creal(clog(xm1_MgFe))                  + 0.5*creal(clog(xrest_notNa)) - creal(clog(xtet_notSi))                  - 0.5*creal(clog(xm1_notMgFe)) + creal(clog(xal3tet))) +                ((HX3)-T*(SX3)+Pv*(VX3)) +                ((HX2X3)-T*(SX2X3)+Pv*(VX2X3))*r0 +                ((HX3X3)-T*(SX3X3)+Pv*(VX3X3))*r1*2.0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r2 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r3 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r4 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r5 +                ((HX3S1)-T*(SX3S1)+Pv*(VX3S1))*s0 +                ((HX3S2)-T*(SX3S2)+Pv*(VX3S2))*s1 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r5 +                ((HX2X3S2)+Pv*(VX2X3S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r5*2.0 +                ((HX3X3S2)+Pv*(VX3X3S2))*r1*s1*2.0 +                ((HX3X4X7)+Pv*(VX3X4X7))*r2*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r2*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r3*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r3*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r4*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r4*s1 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r5*r5 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r5*s1 +                ((HX3S2S2)+Pv*(VX3S2S2))*s1*s1;
+    double dgdr2 = Rgas*T*(0.5*creal(clog(xti4m1)) - 0.5*creal(clog(xmg2m1)) + 0.5*creal(clog(xm1_notTi))                  - creal(clog(xm1_MgFeNoTi)) + 0.5*creal(clog(xm1_MgFe))                  + 0.5*creal(clog(xrest_notNa)) - creal(clog(xtet_notSi))                  - 0.5*creal(clog(xm1_notMgFe)) + creal(clog(xfe3tet))) +                ((HX4)-T*(SX4)+Pv*(VX4)) +                ((HX2X4)-T*(SX2X4)+Pv*(VX2X4))*r0 +                ((HX3X4)-T*(SX3X4)+Pv*(VX3X4))*r1 +                ((HX4X4)-T*(SX4X4)+Pv*(VX4X4))*r2*2.0 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r3 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r4 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r5 +                ((HX4S1)-T*(SX4S1)+Pv*(VX4S1))*s0 +                ((HX4S2)-T*(SX4S2)+Pv*(VX4S2))*s1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r5 +                ((HX2X4S2)+Pv*(VX2X4S2))*r0*s1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r5 +                ((HX3X4S2)+Pv*(VX3X4S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r5*2.0 +                ((HX4X4S2)+Pv*(VX4X4S2))*r2*s1*2.0 +                ((HX4X5X7)+Pv*(VX4X5X7))*r3*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r3*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r4*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r4*s1 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r5*r5 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r5*s1 +                ((HX4S2S2)+Pv*(VX4S2S2))*s1*s1;
+    double dgdr3 = Rgas*T*(0.5*creal(clog(xal3m1)) + 0.5*creal(clog(xfe3m1)) - creal(clog(xmg2m1))                  - creal(clog(xm1_MgFeNoTi)) + creal(clog(xm1_MgFe))                  - creal(clog(xtet_notSi)) + 0.5*creal(clog(xal3tet)) + 0.5*creal(clog(xfe3tet))                  + creal(clog(xrest_notNa)) - creal(clog(xm1_notMgFe))) +                ((HX5)-T*(SX5)+Pv*(VX5)) +                ((HX2X5)-T*(SX2X5)+Pv*(VX2X5))*r0 +                ((HX3X5)-T*(SX3X5)+Pv*(VX3X5))*r1 +                ((HX4X5)-T*(SX4X5)+Pv*(VX4X5))*r2 +                ((HX5X5)-T*(SX5X5)+Pv*(VX5X5))*r3*2.0 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r4 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r5 +                ((HX5S1)-T*(SX5S1)+Pv*(VX5S1))*s0 +                ((HX5S2)-T*(SX5S2)+Pv*(VX5S2))*s1 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r5 +                ((HX2X5S2)+Pv*(VX2X5S2))*r0*s1 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r5 +                ((HX3X5S2)+Pv*(VX3X5S2))*r1*s1 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r5 +                ((HX4X5S2)+Pv*(VX4X5S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r5*2.0 +                ((HX5X5S2)+Pv*(VX5X5S2))*r3*s1*2.0 +                ((HX5X6X7)+Pv*(VX5X6X7))*r4*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r4*s1 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r5*r5 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r5*s1 +                ((HX5S2S2)+Pv*(VX5S2S2))*s1*s1;
+    double dgdr4 = Rgas*T*(0.25*creal(clog(xal3m1)) + 0.25*creal(clog(xfe3m1)) - 0.5*creal(clog(xmg2m1))                  - 0.5*creal(clog(xm1_MgFeNoTi)) + 0.5*creal(clog(xm1_MgFe))                  + 0.5*creal(clog(xtet_notSi)) - 0.25*creal(clog(xal3tet))                  - 0.25*creal(clog(xfe3tet)) - creal(clog(xca2m2)) + creal(clog(xna1m2))                  - 0.5*creal(clog(xrest_notNa))                  - 0.5*creal(clog(xm1_notMgFe)) + creal(clog(xm2_notNa))) +                ((HX6)-T*(SX6)+Pv*(VX6)) +                ((HX2X6)-T*(SX2X6)+Pv*(VX2X6))*r0 +                ((HX3X6)-T*(SX3X6)+Pv*(VX3X6))*r1 +                ((HX4X6)-T*(SX4X6)+Pv*(VX4X6))*r2 +                ((HX5X6)-T*(SX5X6)+Pv*(VX5X6))*r3 +                ((HX6X6)-T*(SX6X6)+Pv*(VX6X6))*r4*2.0 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r5 +                ((HX6S1)-T*(SX6S1)+Pv*(VX6S1))*s0 +                ((HX6S2)-T*(SX6S2)+Pv*(VX6S2))*s1 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r5 +                ((HX2X6S2)+Pv*(VX2X6S2))*r0*s1 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r5 +                ((HX3X6S2)+Pv*(VX3X6S2))*r1*s1 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r5 +                ((HX4X6S2)+Pv*(VX4X6S2))*r2*s1 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r5 +                ((HX5X6S2)+Pv*(VX5X6S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r5*2.0 +                ((HX6X6S2)+Pv*(VX6X6S2))*r4*s1*2.0 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r5*r5 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r5*s1 +                ((HX6S2S2)+Pv*(VX6S2S2))*s1*s1;
+    double dgdr5 = 0.5*Rgas*T*(creal(clog(xmg2m1)) - 2.0*creal(clog(xca2m2))                  + creal(clog(xmg2m2)) + creal(clog(xfe2m2/xfe2m1))) +                ((HX7)-T*(SX7)+Pv*(VX7)) +                ((HX2X7)-T*(SX2X7)+Pv*(VX2X7))*r0 +                ((HX3X7)-T*(SX3X7)+Pv*(VX3X7))*r1 +                ((HX4X7)-T*(SX4X7)+Pv*(VX4X7))*r2 +                ((HX5X7)-T*(SX5X7)+Pv*(VX5X7))*r3 +                ((HX6X7)-T*(SX6X7)+Pv*(VX6X7))*r4 +                ((HX7X7)-T*(SX7X7)+Pv*(VX7X7))*r5*2.0 +                ((HX7S1)-T*(SX7S1)+Pv*(VX7S1))*s0 +                ((HX7S2)-T*(SX7S2)+Pv*(VX7S2))*s1 +                ((HX2X2X7)+Pv*(VX2X2X7))*r0*r0 +                ((HX2X3X7)+Pv*(VX2X3X7))*r0*r1 +                ((HX2X4X7)+Pv*(VX2X4X7))*r0*r2 +                ((HX2X5X7)+Pv*(VX2X5X7))*r0*r3 +                ((HX2X6X7)+Pv*(VX2X6X7))*r0*r4 +                ((HX2X7X7)-T*(SX2X7X7)+Pv*(VX2X7X7))*r0*r5*2.0 +                ((HX2X7S2)+Pv*(VX2X7S2))*r0*s1 +                ((HX3X3X7)+Pv*(VX3X3X7))*r1*r1 +                ((HX3X4X7)+Pv*(VX3X4X7))*r1*r2 +                ((HX3X5X7)+Pv*(VX3X5X7))*r1*r3 +                ((HX3X6X7)+Pv*(VX3X6X7))*r1*r4 +                ((HX3X7X7)-T*(SX3X7X7)+Pv*(VX3X7X7))*r1*r5*2.0 +                ((HX3X7S2)-T*(SX3X7S2)+Pv*(VX3X7S2))*r1*s1 +                ((HX4X4X7)+Pv*(VX4X4X7))*r2*r2 +                ((HX4X5X7)+Pv*(VX4X5X7))*r2*r3 +                ((HX4X6X7)+Pv*(VX4X6X7))*r2*r4 +                ((HX4X7X7)-T*(SX4X7X7)+Pv*(VX4X7X7))*r2*r5*2.0 +                ((HX4X7S2)-T*(SX4X7S2)+Pv*(VX4X7S2))*r2*s1 +                ((HX5X5X7)+Pv*(VX5X5X7))*r3*r3 +                ((HX5X6X7)+Pv*(VX5X6X7))*r3*r4 +                ((HX5X7X7)-T*(SX5X7X7)+Pv*(VX5X7X7))*r3*r5*2.0 +                ((HX5X7S2)-T*(SX5X7S2)+Pv*(VX5X7S2))*r3*s1 +                ((HX6X6X7)+Pv*(VX6X6X7))*r4*r4 +                ((HX6X7X7)-T*(SX6X7X7)+Pv*(VX6X7X7))*r4*r5*2.0 +                ((HX6X7S2)-T*(SX6X7S2)+Pv*(VX6X7S2))*r4*s1 +                ((HX7X7X7)-T*(SX7X7X7)+Pv*(VX7X7X7))*r5*r5*3.0 +                ((HX7X7S2)-T*(SX7X7S2)+Pv*(VX7X7S2))*r5*s1*2.0 +                ((HX7S2S2)+Pv*(VX7S2S2))*s1*s1;
 
     /* ends[]: real orthopyroxene.c's own "purePyx"/"pureOrder" functions
        (computing the ENDMEMBERS reference values) hardcode
