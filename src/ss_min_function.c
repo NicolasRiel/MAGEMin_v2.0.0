@@ -14,7 +14,6 @@ Function to call solution phase Minimization
 
 #include <math.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <time.h>
 #include <string.h>
 #include <complex.h> 
@@ -491,567 +490,6 @@ void init_PGE_from_LP(	global_variable 	 gv,
 #define LIQ_PC_SYNTH_MAX_DIM 16
 
 /**
-    Target xeos step size for the synthetic pseudocompound spread, scaled by
-    how far the PGE/LP cycle currently is from convergence: sqrt of the most
-    recently recorded Gamma-update norm, gv.gamma_norm[gv.global_ite-1] (the
-    same per-iteration convergence diagnostic already used elsewhere, e.g.
-    PGE_function.c's own solver-switching logic) - large when Gamma is still
-    moving a lot (early iterations, coarser exploration is fine/desirable),
-    shrinking automatically as the cycle approaches convergence (finer,
-    more localized synthetic points once Gamma itself is barely changing).
-    Clamped to [1e-6, 1e-2] so it never vanishes or explodes regardless of
-    gv.gamma_norm's own scale. gv.global_ite==0 (no recorded norm yet, e.g.
-    the very first LP cycle of a point) falls back to gamma_norm=0, i.e.
-    the clamped floor 1e-6.
-*/
-static double GH_liq_pc_synth_step(	global_variable 	 gv			){
-	int    gi    = gv.global_ite - 1;
-	double gnorm = (gi >= 0) ? gv.gamma_norm[gi] : 0.0;
-	double h     = gv.gh_liq_pc_synth_h * pow(gnorm,1.0/2.0);
-	if (h > 1e-2){ h = 1e-2; }
-	if (h < 1e-6){ h = 1e-6; }
-	return h;
-}
-
-/**
-    Evaluate a phase's real Gibbs energy at a given point (unrotated: Gamma=0),
-    with no NLopt search, and reconstruct its RAW (pre-"boil-down") xeos-
-    gradient mu_raw_out[j] = mu_Gex[j] + gb_lvl[j] + R*T*(log(p[j]+d_em[j])+1),
-    matching obj_gh_liq's own dSi[] term exactly. Returns df_raw, not df.
-
-    obj_gh_liq (like every gh phase) returns df = df_raw(x) * factor(x), with
-    factor(x) = fbc/sum_apep(x) an "oxide boil-down" renormalization that is
-    itself x-dependent - so NLopt's own returned gradient (d(df)/dx, via the
-    grad[] parameter) is contaminated by factor's own derivative and is NOT
-    simply the endmember chemical potential entering the Gamma-hyperplane
-    condition. Since df(x) = df_raw(x)*factor(x) and factor(x) > 0 always,
-    df(x)=0 and df_raw(x)=0 have the IDENTICAL zero-crossing set, so working
-    with the raw, un-renormalized df_raw/mu_raw throughout (as this function
-    does) sidesteps the factor(x) chain-rule complexity entirely rather than
-    having to differentiate through it.
-
-    LIQ-SPECIFIC: the dSi formula reconstructed here is obj_gh_liq's own
-    (single-site, multiplicity-1) configurational entropy term - other gh
-    phases with different entropy formulas (e.g. obj_gh_ol's factor-of-2
-    two-site term) would need their own version of this reconstruction.
-*/
-static double GH_liq_eval_raw(		global_variable 	 gv,
-									obj_type 			*SS_objective,
-									SS_ref 			    *SS_ref_db,
-									int 				 ph_id,
-									double 				*xeos_in,
-									double 				*mu_raw_out		){
-
-	SS_ref_db[ph_id] = non_rot_hyperplane(gv, SS_ref_db[ph_id]);
-	for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
-		SS_ref_db[ph_id].iguess[k] = xeos_in[k];
-	}
-	(*SS_objective[ph_id])(	SS_ref_db[ph_id].n_xeos,
-							SS_ref_db[ph_id].iguess,
-							NULL,
-							&SS_ref_db[ph_id]			);
-
-	double R = SS_ref_db[ph_id].R;
-	double T = SS_ref_db[ph_id].T;
-	for (int j = 0; j < SS_ref_db[ph_id].n_em; j++){
-		double dSi_j = R * T * (log(SS_ref_db[ph_id].p[j] + SS_ref_db[ph_id].d_em[j]) + 1.0);
-		mu_raw_out[j] = SS_ref_db[ph_id].mu_Gex[j] + SS_ref_db[ph_id].gb_lvl[j] + dSi_j;
-	}
-	return SS_ref_db[ph_id].df_raw;
-}
-
-/**
-    Accumulate one phase's weighted contribution to the stage-B normal
-    equations MtM*Gamma = Mtmu (n_ox x n_ox, allocation-free, M itself
-    never formed) using its real minimum's already-reconstructed raw
-    endmember chemical potentials g_star[] (see GH_liq_eval_raw - NOT
-    NLopt's own factor-scaled gradient) and its fixed Comp[][] table.
-    Endmember rows are weighted by molar abundance p_j*z_em[j] so vanishing
-    endmembers (mu dominated by a blowing-up log term) don't destabilize
-    the fit, and z_em[j]==0 (deactivated) endmembers drop out entirely.
-
-    Restricted to z_b.nzEl_array[] (the oxides actually present in the
-    bulk, z_b.nzEl_val of them) rather than all gv.len_ox - matching the
-    same restriction the rest of the codebase's own levelling/simplex
-    machinery already applies (gv.gam_tot itself is only ever written at
-    nzEl_array positions elsewhere, e.g. simplex_levelling.c). An oxide
-    absent from the bulk has no meaningful Gamma to fit in the first place;
-    excluding it here (rather than solving for it and discovering the
-    system is singular) is both more principled and cheaper.
-*/
-static void GH_liq_gamma_ls_accumulate(	bulk_info 			 z_b,
-											SS_ref 				 SS_ref_db_ph,
-											double 				*g_star,
-											double 				 MtM[n_ox_all][n_ox_all],
-											double 				 Mtmu[n_ox_all]			){
-
-	for (int j = 0; j < SS_ref_db_ph.n_em; j++){
-		double w = SS_ref_db_ph.p[j] * SS_ref_db_ph.z_em[j];
-		// if (w <= 0.0){ continue; }
-		for (int ka = 0; ka < z_b.nzEl_val; ka++){
-			int a = z_b.nzEl_array[ka];
-			Mtmu[a] += w * SS_ref_db_ph.Comp[j][a] * g_star[j];
-			for (int kb = 0; kb < z_b.nzEl_val; kb++){
-				int b = z_b.nzEl_array[kb];
-				MtM[a][b] += w * SS_ref_db_ph.Comp[j][a] * SS_ref_db_ph.Comp[j][b];
-			}
-		}
-	}
-}
-
-/**
-    Solve the weighted normal equations for Gamma_new by in-place Gauss
-    elimination with partial pivoting - fixed-size, no allocation.
-
-    Restricted to z_b.nzEl_array[] (see GH_liq_gamma_ls_accumulate): builds
-    and solves only the nzEl_val x nzEl_val reduced system over oxides
-    actually present in the bulk, using compact local indices 0..nzEl_val-1
-    internally, then scatters the solved values back into the full-size
-    gamma_new[] via nzEl_array. Every oxide NOT in the bulk is left exactly
-    at gamma_prior (gamma_new is pre-filled with it) - the rest of the
-    codebase never touches gv.gam_tot at those positions either.
-
-    Tikhonov (ridge) regularized on top of that restriction, anchored at
-    gamma_prior rather than at zero - a light numerical safety net for
-    near-degeneracies *within* the present-oxide subspace (e.g. two oxides
-    that happen to be almost perfectly correlated across every one of
-    liq's endmembers), not the primary mechanism for handling absent
-    oxides (the nzEl_array restriction already does that exactly). lambda
-    is scaled to the reduced MtM's own average diagonal magnitude. Still
-    returns 0 (should essentially never happen) if the caller should fall
-    back to gamma_prior entirely.
-*/
-static int GH_liq_gamma_solve(		bulk_info 			 z_b,
-									double 				 MtM[n_ox_all][n_ox_all],
-									double 				*Mtmu,
-									double 				*gamma_prior,
-									double 				*gamma_new				){
-
-	int    n = z_b.nzEl_val;
-	double A[n_ox_all][n_ox_all];
-	double b[n_ox_all];
-	double x[n_ox_all];
-
-	double trace = 0.0;
-	for (int ka = 0; ka < n; ka++){ trace += MtM[z_b.nzEl_array[ka]][z_b.nzEl_array[ka]]; }
-	double lambda = 1e-8 * (trace / (double)n);
-	if (lambda <= 0.0){ lambda = 1e-8; }	/* MtM all-zero (degenerate) safety floor */
-
-	for (int ka = 0; ka < n; ka++){
-		int a = z_b.nzEl_array[ka];
-		b[ka] = Mtmu[a] + lambda * gamma_prior[a];
-		for (int kc = 0; kc < n; kc++){
-			int c = z_b.nzEl_array[kc];
-			A[ka][kc] = MtM[a][c] + ((ka == kc) ? lambda : 0.0);
-		}
-	}
-
-	for (int col = 0; col < n; col++){
-		int    piv  = col;
-		double best = fabs(A[col][col]);
-		for (int r = col+1; r < n; r++){
-			if (fabs(A[r][col]) > best){ best = fabs(A[r][col]); piv = r; }
-		}
-		if (best < 1e-10){ return 0; }
-		if (piv != col){
-			for (int c = 0; c < n; c++){ double t = A[col][c]; A[col][c] = A[piv][c]; A[piv][c] = t; }
-			double t = b[col]; b[col] = b[piv]; b[piv] = t;
-		}
-		for (int r = col+1; r < n; r++){
-			double f = A[r][col] / A[col][col];
-			for (int c = col; c < n; c++){ A[r][c] -= f * A[col][c]; }
-			b[r] -= f * b[col];
-		}
-	}
-	for (int r = n-1; r >= 0; r--){
-		double s = b[r];
-		for (int c = r+1; c < n; c++){ s -= A[r][c] * x[c]; }
-		x[r] = s / A[r][r];
-	}
-	for (int r = 0; r < n; r++){ gamma_new[z_b.nzEl_array[r]] = x[r]; }
-	return 1;
-}
-
-/**
-    Stage C: for "liq" only, when its active occurrence count N (cp[] entries
-    with id == ph_id) reaches gv.gh_liq_pc_synth_threshold, generate 2*N
-    synthetic pseudocompounds lying on (a linearization of) the refined
-    Gamma_new hyperplane, spread as antipodal pairs around the single real
-    minimum x* found earlier this cycle - added to the Ppc pool via the
-    existing PC_function + SS_UPDATE_function + copy_to_Ppc sequence (the
-    same 3-call pattern this file's own gv.n_ss_ph[ph_id]==1 block uses,
-    generalized here from a fixed 2-point shift-blend to 2*N hyperplane
-    points). See docs/liq_pseudocompound_shortcut.md for the full derivation.
-*/
-static void GH_liq_pc_synth(		global_variable 	 gv,
-									PC_type				*PC_read,
-									obj_type 			*SS_objective,
-									bulk_info 	 		 z_b,
-									SS_ref 			    *SS_ref_db,
-									csd_phase_set  		*cp,
-									int 				 ph_id,
-									double 				*gamma_new			){
-
-	int n_xeos = SS_ref_db[ph_id].n_xeos;
-	if (n_xeos > LIQ_PC_SYNTH_MAX_DIM){ return; }	/* safety: never index past the fixed-size scratch below */
-
-	double x_star[LIQ_PC_SYNTH_MAX_DIM];
-	double g_star[LIQ_PC_SYNTH_MAX_DIM];
-	double g_eff[LIQ_PC_SYNTH_MAX_DIM];
-	double x_mean[LIQ_PC_SYNTH_MAX_DIM];
-	double x_base[LIQ_PC_SYNTH_MAX_DIM];
-	double e_k[LIQ_PC_SYNTH_MAX_DIM];
-	double v_k[LIQ_PC_SYNTH_MAX_DIM];
-	double x_plus[LIQ_PC_SYNTH_MAX_DIM];
-	double x_minus[LIQ_PC_SYNTH_MAX_DIM];
-
-	for (int k = 0; k < n_xeos; k++){ x_star[k] = SS_ref_db[ph_id].xeos[k]; }
-
-
-	// for (int k = 0; k < n_xeos; k++){ 
-	// 	printf("%g \n ",SS_ref_db[ph_id].xeos[k]);
-	// }
-
-	/* G*, g* at x* (single direct, no-NLopt evaluation, raw/un-"boiled-down"
-	   quantities - see GH_liq_eval_raw for why raw rather than df/grad[]) */
-	double G_star = GH_liq_eval_raw(gv, SS_objective, SS_ref_db, ph_id, x_star, g_star);
-
-	/* g_eff = g* - C^T.Gamma_new (raw, z_em-weighted Comp),  dG0 = G* - Gamma_new.Comp_raw(x*).
-	   Restricted to z_b.nzEl_array[] (oxides present in the bulk) - see
-	   GH_liq_gamma_ls_accumulate's own header comment for why: an endmember
-	   can carry a nonzero Comp[][] entry for an oxide the CURRENT bulk
-	   doesn't have (e.g. a water-bearing endmember's table entry, even
-	   when z_em deactivates it for this bulk), so summing gamma_new over
-	   every oxide rather than just the present ones could pull in a stale/
-	   prior value through a nonzero Comp[][] entry that should not matter. */
-	double dG0 = G_star;
-	for (int k = 0; k < n_xeos; k++){ g_eff[k] = g_star[k]; }
-	for (int ja = 0; ja < z_b.nzEl_val; ja++){
-		int j = z_b.nzEl_array[ja];
-		double gam = gamma_new[j];
-		for (int k = 0; k < n_xeos; k++){
-			double c   = SS_ref_db[ph_id].Comp[k][j] * SS_ref_db[ph_id].z_em[k];
-			dG0       -= c * gam * x_star[k];
-			g_eff[k]  -= c * gam;
-		}
-	}
-
-	/* project g_eff onto the simplex's tangent space (vectors summing to 0):
-	   every xeos in cp[] satisfies sum_k x_k = 1, so x_star + delta stays a
-	   valid composition only if sum_k delta_k = 0 - this holds for e_k
-	   (difference of two sum-to-1 vectors) but is NOT automatic for g_eff,
-	   so it must be enforced here before g_eff drives delta_0/P below. */
-	{
-		double mean_g = 0.0;
-		for (int k = 0; k < n_xeos; k++){ mean_g += g_eff[k]; }
-		mean_g /= (double)n_xeos;
-		for (int k = 0; k < n_xeos; k++){ g_eff[k] -= mean_g; }
-	}
-
-	double g_eff_norm2 = 0.0;
-	for (int k = 0; k < n_xeos; k++){ g_eff_norm2 += g_eff[k]*g_eff[k]; }
-
-	if (g_eff_norm2 > 1e-24){
-		double lambda = -dG0 / g_eff_norm2;
-		for (int k = 0; k < n_xeos; k++){ x_base[k] = x_star[k] + lambda * g_eff[k]; }
-	}
-	else{
-		for (int k = 0; k < n_xeos; k++){ x_base[k] = x_star[k]; }
-	}
-
-	/* pass 1: mean of the N previous occurrences' xeos (cp[i].xeos is never
-	   mutated inside ss_min_LP, so it is safe to read here unchanged) */
-	int N = 0;
-	for (int k = 0; k < n_xeos; k++){ x_mean[k] = 0.0; }
-	for (int i = 0; i < gv.len_cp; i++){
-		if (cp[i].ss_flags[0] == 1 && cp[i].id == ph_id){
-			for (int k = 0; k < n_xeos; k++){ x_mean[k] += cp[i].xeos[k]; }
-			N += 1;
-		}
-	}
-	if (N < 2){ return; }
-	for (int k = 0; k < n_xeos; k++){ x_mean[k] /= (double)N; }
-
-	/* pass 2: max norm of the projected deviations P*e_k, to normalize the step size */
-	double max_norm = 0.0;
-	for (int i = 0; i < gv.len_cp; i++){
-		if (cp[i].ss_flags[0] == 1 && cp[i].id == ph_id){
-			double dot = 0.0;
-			for (int k = 0; k < n_xeos; k++){
-				e_k[k] = cp[i].xeos[k] - x_mean[k];
-				dot   += e_k[k] * g_eff[k];
-			}
-			double f  = (g_eff_norm2 > 1e-24) ? (dot / g_eff_norm2) : 0.0;
-			double n2 = 0.0;
-			for (int k = 0; k < n_xeos; k++){
-				double v = e_k[k] - f * g_eff[k];
-				n2 += v*v;
-			}
-			double nrm = sqrt(n2);
-			if (nrm > max_norm){ max_norm = nrm; }
-		}
-	}
-	if (max_norm < 1e-12){ return; }	/* degenerate previous spread - nothing to reuse this cycle */
-
-	double s = GH_liq_pc_synth_step(gv) / max_norm;
-
-	/* pass 3: generate + add the 2*N antipodal points, one pair per real
-	   occurrence's own deviation direction from the group mean */
-	for (int i = 0; i < gv.len_cp; i++){
-		if (cp[i].ss_flags[0] == 1 && cp[i].id == ph_id){
-			double dot = 0.0;
-			for (int k = 0; k < n_xeos; k++){
-				e_k[k] = cp[i].xeos[k] - x_mean[k];
-				dot   += e_k[k] * g_eff[k];
-			}
-			double f = (g_eff_norm2 > 1e-24) ? (dot / g_eff_norm2) : 0.0;
-			int ok_plus = 1, ok_minus = 1;
-			for (int k = 0; k < n_xeos; k++){
-				v_k[k]     = e_k[k] - f * g_eff[k];
-				x_plus[k]  = x_base[k] + s * v_k[k];
-				x_minus[k] = x_base[k] - s * v_k[k];
-				if (x_plus[k]  < SS_ref_db[ph_id].bounds[k][0] || x_plus[k]  > SS_ref_db[ph_id].bounds[k][1]){ ok_plus  = 0; }
-				if (x_minus[k] < SS_ref_db[ph_id].bounds[k][0] || x_minus[k] > SS_ref_db[ph_id].bounds[k][1]){ ok_minus = 0; }
-			}
-			if (!ok_plus || !ok_minus){ continue; }	/* keep pairs symmetric: drop both rather than clamp asymmetrically */
-
-			for (int pass = 0; pass < 2; pass++){
-				double *x_syn = (pass == 0) ? x_plus : x_minus;
-				for (int k = 0; k < n_xeos; k++){ SS_ref_db[ph_id].iguess[k] = x_syn[k]; }
-
-				SS_ref_db[ph_id] = PC_function(				gv,
-															PC_read,
-															SS_ref_db[ph_id],
-															z_b,
-															ph_id					);
-
-				SS_ref_db[ph_id] = SS_UPDATE_function(		gv,
-															SS_ref_db[ph_id],
-															z_b,
-															gv.SS_list[ph_id]		);
-
-				if (SS_ref_db[ph_id].sf_ok == 1){
-					if (gv.verbose == 1){
-						printf("added PC, pass %d",pass);
-					}
-					copy_to_Ppc(							0,
-															1,
-															ph_id,
-															gv,
-
-															SS_objective,
-															SS_ref_db				);
-				}
-				else{
-					if (gv.verbose == 1){
-						printf("failed adding PC, pass %d\n",pass);
-					}
-				}
-			}
-		}
-	}
-}
-
-/**
-    tc analogue of GH_liq_eval_raw - genuinely phase-generic (not just
-    liq): unlike gh, EVERY tc phase's objective function already populates
-    d->mu[j] (raw per-endmember chemical potential) and d->df_raw directly
-    as a side effect of every call - no hand-reconstruction of a phase-
-    specific entropy term needed (see obj_ig_liq: mu[j] = R*T*log(...) +
-    gb[j] + mu_Gex[j], already stored; SS_UPDATE_function's own tc branch
-    already relies on this generically for xi_em, not liq-specifically).
-    What tc needs instead is d->dp_dx[j][i] = dp_j/dx_i (tc's xeos are a
-    reduced, generally nonlinear basis, n_xeos != n_em) - this is only
-    populated when the objective is called with grad != NULL (e.g.
-    obj_ig_liq calls dpdx_ig_liq(...) inside "if (grad){...}"), so grad
-    must be requested here even though its own contents are unused (the
-    factor-scaled dfx[] it produces is not what this needs - see
-    TC_liq_pc_synth for how the raw mu[]/dp_dx[][] are combined instead).
-    Callable for any already-minimized tc phase, not just liq - see the
-    "other minimized phases" block in ss_min_LP.
-*/
-static double TC_eval_raw(		global_variable 	 gv,
-								obj_type 			*SS_objective,
-								SS_ref 			    *SS_ref_db,
-								int 				 ph_id,
-								double 				*xeos_in,
-								double 				*mu_raw_out		){
-
-	SS_ref_db[ph_id] = non_rot_hyperplane(gv, SS_ref_db[ph_id]);
-	for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
-		SS_ref_db[ph_id].iguess[k] = xeos_in[k];
-	}
-	double dummy_grad[LIQ_PC_SYNTH_MAX_DIM];
-	(*SS_objective[ph_id])(	SS_ref_db[ph_id].n_xeos,
-							SS_ref_db[ph_id].iguess,
-							dummy_grad,
-							&SS_ref_db[ph_id]			);
-
-	for (int j = 0; j < SS_ref_db[ph_id].n_em; j++){
-		mu_raw_out[j] = SS_ref_db[ph_id].mu[j];
-	}
-	return SS_ref_db[ph_id].df_raw;
-}
-
-/**
-    tc analogue of GH_liq_pc_synth - same occurrence-direction, antipodal-
-    pair construction (see that function's own comments for the shared
-    parts), but adapted for tc's reduced-basis phases:
-    - the driving-force residual is built in ENDMEMBER space first
-      (r[j] = mu_raw[j] - z_em[j]*(Comp[j].Gamma_new), j=1..n_em), then
-      chain-ruled into XEOS space via dp_dx: g_eff[i] = sum_j dp_dx[j][i]*r[j]
-      (dp_dx populated by TC_eval_raw's grad-requesting call);
-    - no Sigma(x)=1 tangent-projection: tc's reduced-basis xeos have only
-      box bounds, no such equality constraint (unlike gh).
-*/
-static void TC_liq_pc_synth(		global_variable 	 gv,
-									PC_type				*PC_read,
-									obj_type 			*SS_objective,
-									bulk_info 	 		 z_b,
-									SS_ref 			    *SS_ref_db,
-									csd_phase_set  		*cp,
-									int 				 ph_id,
-									double 				*gamma_new			){
-
-	int n_xeos = SS_ref_db[ph_id].n_xeos;
-	int n_em   = SS_ref_db[ph_id].n_em;
-	if (n_xeos > LIQ_PC_SYNTH_MAX_DIM || n_em > LIQ_PC_SYNTH_MAX_DIM){ return; }	/* safety: never index past the fixed-size scratch below */
-
-	double x_star[LIQ_PC_SYNTH_MAX_DIM];
-	double mu_raw[LIQ_PC_SYNTH_MAX_DIM];		/* endmember-space */
-	double r_em[LIQ_PC_SYNTH_MAX_DIM];			/* endmember-space residual */
-	double g_eff[LIQ_PC_SYNTH_MAX_DIM];		/* xeos-space, via dp_dx chain rule */
-	double x_mean[LIQ_PC_SYNTH_MAX_DIM];
-	double x_base[LIQ_PC_SYNTH_MAX_DIM];
-	double e_k[LIQ_PC_SYNTH_MAX_DIM];
-	double v_k[LIQ_PC_SYNTH_MAX_DIM];
-	double x_plus[LIQ_PC_SYNTH_MAX_DIM];
-	double x_minus[LIQ_PC_SYNTH_MAX_DIM];
-
-	for (int k = 0; k < n_xeos; k++){ x_star[k] = SS_ref_db[ph_id].xeos[k]; }
-
-	/* G*, raw endmember mu* at x* (grad-requesting call so dp_dx[][] gets populated too) */
-	double G_star = TC_eval_raw(gv, SS_objective, SS_ref_db, ph_id, x_star, mu_raw);
-
-	/* r[j] = mu_raw[j] - z_em[j]*(Comp[j].Gamma_new),  dG0 = G* - sum_j p*[j]*z_em[j]*(Comp[j].Gamma_new).
-	   Restricted to z_b.nzEl_array[] (oxides present in the bulk) - see
-	   GH_liq_gamma_ls_accumulate's header comment for why. */
-	double dG0 = G_star;
-	for (int j = 0; j < n_em; j++){
-		double cg = 0.0;
-		for (int ka = 0; ka < z_b.nzEl_val; ka++){
-			int a = z_b.nzEl_array[ka];
-			cg += SS_ref_db[ph_id].Comp[j][a] * gamma_new[a];
-		}
-		cg *= SS_ref_db[ph_id].z_em[j];
-		r_em[j] = mu_raw[j] - cg;
-		dG0    -= SS_ref_db[ph_id].p[j] * cg;
-	}
-
-	/* chain rule into xeos-space: g_eff[i] = sum_j dp_dx[j][i]*r_em[j] (no
-	   tangent-projection - see function header comment) */
-	for (int k = 0; k < n_xeos; k++){
-		double sum = 0.0;
-		for (int j = 0; j < n_em; j++){ sum += SS_ref_db[ph_id].dp_dx[j][k] * r_em[j]; }
-		g_eff[k] = sum;
-	}
-
-	double g_eff_norm2 = 0.0;
-	for (int k = 0; k < n_xeos; k++){ g_eff_norm2 += g_eff[k]*g_eff[k]; }
-
-	if (g_eff_norm2 > 1e-24){
-		double lambda = -dG0 / g_eff_norm2;
-		for (int k = 0; k < n_xeos; k++){ x_base[k] = x_star[k] + lambda * g_eff[k]; }
-	}
-	else{
-		for (int k = 0; k < n_xeos; k++){ x_base[k] = x_star[k]; }
-	}
-
-	/* pass 1: mean of the N previous occurrences' xeos */
-	int N = 0;
-	for (int k = 0; k < n_xeos; k++){ x_mean[k] = 0.0; }
-	for (int i = 0; i < gv.len_cp; i++){
-		if (cp[i].ss_flags[0] == 1 && cp[i].id == ph_id){
-			for (int k = 0; k < n_xeos; k++){ x_mean[k] += cp[i].xeos[k]; }
-			N += 1;
-		}
-	}
-	if (N < 2){ return; }
-	for (int k = 0; k < n_xeos; k++){ x_mean[k] /= (double)N; }
-
-	/* pass 2: max norm of the projected deviations P*e_k, to normalize the step size */
-	double max_norm = 0.0;
-	for (int i = 0; i < gv.len_cp; i++){
-		if (cp[i].ss_flags[0] == 1 && cp[i].id == ph_id){
-			double dot = 0.0;
-			for (int k = 0; k < n_xeos; k++){
-				e_k[k] = cp[i].xeos[k] - x_mean[k];
-				dot   += e_k[k] * g_eff[k];
-			}
-			double f  = (g_eff_norm2 > 1e-24) ? (dot / g_eff_norm2) : 0.0;
-			double n2 = 0.0;
-			for (int k = 0; k < n_xeos; k++){
-				double v = e_k[k] - f * g_eff[k];
-				n2 += v*v;
-			}
-			double nrm = sqrt(n2);
-			if (nrm > max_norm){ max_norm = nrm; }
-		}
-	}
-	if (max_norm < 1e-12){ return; }	/* degenerate previous spread - nothing to reuse this cycle */
-
-	double s = GH_liq_pc_synth_step(gv) / max_norm;
-
-	/* pass 3: generate + add the 2*N antipodal points */
-	for (int i = 0; i < gv.len_cp; i++){
-		if (cp[i].ss_flags[0] == 1 && cp[i].id == ph_id){
-			double dot = 0.0;
-			for (int k = 0; k < n_xeos; k++){
-				e_k[k] = cp[i].xeos[k] - x_mean[k];
-				dot   += e_k[k] * g_eff[k];
-			}
-			double f = (g_eff_norm2 > 1e-24) ? (dot / g_eff_norm2) : 0.0;
-			int ok_plus = 1, ok_minus = 1;
-			for (int k = 0; k < n_xeos; k++){
-				v_k[k]     = e_k[k] - f * g_eff[k];
-				x_plus[k]  = x_base[k] + s * v_k[k];
-				x_minus[k] = x_base[k] - s * v_k[k];
-				if (x_plus[k]  < SS_ref_db[ph_id].bounds[k][0] || x_plus[k]  > SS_ref_db[ph_id].bounds[k][1]){ ok_plus  = 0; }
-				if (x_minus[k] < SS_ref_db[ph_id].bounds[k][0] || x_minus[k] > SS_ref_db[ph_id].bounds[k][1]){ ok_minus = 0; }
-			}
-			if (!ok_plus || !ok_minus){ continue; }	/* keep pairs symmetric: drop both rather than clamp asymmetrically */
-
-			for (int pass = 0; pass < 2; pass++){
-				double *x_syn = (pass == 0) ? x_plus : x_minus;
-				for (int k = 0; k < n_xeos; k++){ SS_ref_db[ph_id].iguess[k] = x_syn[k]; }
-
-				SS_ref_db[ph_id] = PC_function(				gv,
-															PC_read,
-															SS_ref_db[ph_id],
-															z_b,
-															ph_id					);
-
-				SS_ref_db[ph_id] = SS_UPDATE_function(		gv,
-															SS_ref_db[ph_id],
-															z_b,
-															gv.SS_list[ph_id]		);
-
-				if (SS_ref_db[ph_id].sf_ok == 1){
-					copy_to_Ppc(							0,
-															1,
-															ph_id,
-															gv,
-
-															SS_objective,
-															SS_ref_db				);
-															printf(" added PC\n");
-				}
-			}
-		}
-	}
-}
-
-/**
 	Minimization function for PGE
 */
 void ss_min_LP(			global_variable 	 gv,
@@ -1095,6 +533,7 @@ void ss_min_LP(			global_variable 	 gv,
 	}
 	int    liq_synth_active = (ph_id_liq >= 0) && (N_liq >= gv.gh_liq_pc_synth_threshold);
 	int    liq_real_min_found = 0;
+	int    liq_candidate_index = -1; /* index of cp[] entry with the successful minimization */
 	double MtM[n_ox_all][n_ox_all];
 	double Mtmu[n_ox_all];
 	if (liq_synth_active){
@@ -1154,32 +593,7 @@ void ss_min_LP(			global_variable 	 gv,
 				SS_ref_db[ph_id] = (*NLopt_opt[ph_id])(		gv,
 															SS_ref_db[ph_id]		);
 
-				// if (strcmp(gv.research_group, "gh") == 0){
-				// 	// if (SS_ref_db[ph_id].status != 3){
-				// 	// 	double sum_x = 0.0;
-				// 	// 	for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
-				// 	// 		sum_x += SS_ref_db[ph_id].xeos[k];
-				// 	// 	}
-				// 	// 	if (fabs(sum_x - 1.0) > 1.0e-4 && sum_x > 0.0){
-				// 	// 		for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
-				// 	// 			SS_ref_db[ph_id].iguess[k] = SS_ref_db[ph_id].xeos[k] / sum_x;
-				// 	// 		}
-				// 	// 		SS_ref_db[ph_id] = (*NLopt_opt[ph_id])(		gv,
-				// 	// 													SS_ref_db[ph_id]		);
-				// 	// 	}
-				// 	// }
 
-				// 	if (SS_ref_db[ph_id].status != 3){
-				// 		for (int k = 0; k < cp[i].n_xeos; k++) {
-				// 			SS_ref_db[ph_id].iguess[k] 	= cp[i].xeos[k];
-				// 			cp[i].xeos_0[k] 			= cp[i].xeos[k];
-				// 		}
-				// 	}
-				// }
-				/**
-					print solution phase informations (print has to occur before saving PC)
-				*/
-			
 				u = clock() - u;
 				SS_ref_db[ph_id].LM_time = ((double)u)/CLOCKS_PER_SEC*1000.0; 
 
@@ -1203,6 +617,25 @@ void ss_min_LP(			global_variable 	 gv,
 					}
 				}
 
+				/**
+					This next part is important to check if the minimized phase is valid and can be added to the PC list
+				*/
+				for (int k = 0; k < cp[i].n_xeos; k++) {
+					cp[i].xeos_1[k] 			 =  SS_ref_db[ph_id].xeos[k];
+				}
+				for (int k = 0; k < cp[i].n_xeos; k++) {
+					SS_ref_db[ph_id].iguess[k]   =  cp[i].xeos_1[k];
+				}
+				SS_ref_db[ph_id] = PC_function(				gv,
+															PC_read,
+															SS_ref_db[ph_id], 
+															z_b,
+															ph_id 		);
+														
+				SS_ref_db[ph_id] = SS_UPDATE_function(		gv,
+															SS_ref_db[ph_id],
+															z_b,
+															gv.SS_list[ph_id]		);
 				/**
 					add minimized phase to LP PGE pseudocompound list
 				*/
@@ -1232,55 +665,54 @@ void ss_min_LP(			global_variable 	 gv,
 
 				if (is_liq_synth_candidate && candidate_ok == 1){
 					liq_real_min_found = 1;
+					liq_candidate_index = i;
 				}
-
-				if (is_liq_synth_candidate && liq_real_min_found && ph_id == ph_id_liq){
-					double g_row[LIQ_PC_SYNTH_MAX_DIM];
-					if (is_gh && SS_ref_db[ph_id].n_xeos <= LIQ_PC_SYNTH_MAX_DIM){
-						GH_liq_eval_raw(			gv, SS_objective, SS_ref_db, ph_id,
-													SS_ref_db[ph_id].iguess, g_row		);
-						GH_liq_gamma_ls_accumulate(z_b, SS_ref_db[ph_id], g_row, MtM, Mtmu);
-					}
-					else if (is_tc && SS_ref_db[ph_id].n_em <= LIQ_PC_SYNTH_MAX_DIM){
-						TC_eval_raw(			gv, SS_objective, SS_ref_db, ph_id,
-													SS_ref_db[ph_id].iguess, g_row		);
-						GH_liq_gamma_ls_accumulate(z_b, SS_ref_db[ph_id], g_row, MtM, Mtmu);
-					}
-				}
-
 
 			}
 
 		}	
 	}
 
-	/* stage C: refine Gamma and, for liq only, replace the redundant
-	   per-occurrence NLopt solves with 2*N analytic pseudocompounds on
-	   the refined hyperplane (see docs/liq_pseudocompound_shortcut.md).
-	   Requires liq_real_min_found too: if every occurrence's real
-	   minimization turned out invalid (see the per-candidate validity
-	   check above), there is no valid x* to build any of this from, and
-	   every occurrence already got a full legacy minimization instead. */
+	/* stage C replacement: comment out original Gibbs-hyperplane path
+	   and generate pseudocompounds by linear steps from the successful
+	   minimization's xeos to each other liq instance's xeos.
+	   - step size fixed at 0.2, 4 PCs per instance (0.2,0.4,0.6,0.8)
+	   - same bounds checks as original: drop any PC that violates bounds
+	   - keep GH/TC helper functions in the file but do not call them here
+	*/
 	if (liq_synth_active && liq_real_min_found){
-		double gamma_new[n_ox_all];
-		for (int a = 0; a < n_ox_all; a++){ gamma_new[a] = gv.gam_tot[a]; }	/* oxides absent from the bulk keep this prior untouched */
-		if (GH_liq_gamma_solve(z_b, MtM, Mtmu, gv.gam_tot, gamma_new) == 1){
-			if (gv.verbose == 1){
-				printf(" [liq pc synth] Gamma_new = [");
-				for (int a = 0; a < gv.len_ox; a++){ printf(" %+10f", gamma_new[a]); }
-				printf(" ]\n");
+		int n_xeos = SS_ref_db[ph_id_liq].n_xeos;
+		if (n_xeos > LIQ_PC_SYNTH_MAX_DIM){ return; }
+
+		double x_star[LIQ_PC_SYNTH_MAX_DIM];
+		for (int k = 0; k < n_xeos; k++){ x_star[k] = SS_ref_db[ph_id_liq].xeos[k]; }
+
+		double steps[4] = {0.2, 0.4, 0.6, 0.8};
+
+		for (int ic = 0; ic < gv.len_cp; ic++){
+			if (cp[ic].ss_flags[0] == 1 && cp[ic].id == ph_id_liq && ic != liq_candidate_index){
+				for (int si = 0; si < 4; si++){
+					double s = steps[si];
+					int ok = 1;
+					for (int k = 0; k < n_xeos; k++){
+						double x_syn = x_star[k] + s * (cp[ic].xeos[k] - x_star[k]);
+						if (x_syn < SS_ref_db[ph_id_liq].bounds[k][0] || x_syn > SS_ref_db[ph_id_liq].bounds[k][1]){ ok = 0; break; }
+						SS_ref_db[ph_id_liq].iguess[k] = x_syn;
+					}
+					if (!ok) { continue; }
+
+					SS_ref_db[ph_id_liq] = PC_function(gv, PC_read, SS_ref_db[ph_id_liq], z_b, ph_id_liq);
+					SS_ref_db[ph_id_liq] = SS_UPDATE_function(gv, SS_ref_db[ph_id_liq], z_b, gv.SS_list[ph_id_liq]);
+
+					if (SS_ref_db[ph_id_liq].sf_ok == 1){
+						copy_to_Ppc(pc_check, 1, ph_id_liq, gv, SS_objective, SS_ref_db);
+						if (gv.verbose == 1){ printf(" [liq pc synth-linear] added PC for cp#%d step %g\n", ic, s); }
+					}
+					else{
+						if (gv.verbose == 1){ printf(" [liq pc synth-linear] discarded PC (sf fail) for cp#%d step %g\n", ic, s); }
+					}
+				}
 			}
-			if 		(is_gh){ GH_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gamma_new); }
-			else if (is_tc){ TC_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gamma_new); }
-		}
-		else{
-			if (gv.verbose == 1){
-				printf(" [liq pc synth] Gamma_new solve failed (singular), falling back to gv.gam_tot = [");
-				for (int a = 0; a < gv.len_ox; a++){ printf(" %+10f", gv.gam_tot[a]); }
-				printf(" ]\n");
-			}
-			if 		(is_gh){ GH_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gv.gam_tot); }
-			else if (is_tc){ TC_liq_pc_synth(gv, PC_read, SS_objective, z_b, SS_ref_db, cp, ph_id_liq, gv.gam_tot); }
 		}
 	}
 
