@@ -527,7 +527,7 @@ void ss_min_LP(			global_variable 	 gv,
 	   counted directly from cp[] instead, which is what's actually live. */
 	int    N_liq = 0;
 	if (ph_id_liq >= 0){
-		for (int i = 0; i < gv.len_cp; i++){
+		for (int i = 0; i < gv.len_ox; i++){
 			if (cp[i].ss_flags[0] == 1 && cp[i].id == ph_id_liq){ N_liq += 1; }
 		}
 	}
@@ -609,7 +609,21 @@ void ss_min_LP(			global_variable 	 gv,
 															SS_ref_db[ph_id],
 															ph_id					);
 				}
-
+				if (strcmp(gv.research_group, "gh") == 0){
+					if (SS_ref_db[ph_id].status != 3){
+						double sum_x = 0.0;
+						for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
+							sum_x += SS_ref_db[ph_id].xeos[k];
+						}
+						if (fabs(sum_x - 1.0) > 1.0e-4 && sum_x > 0.0){
+							for (int k = 0; k < SS_ref_db[ph_id].n_xeos; k++){
+								SS_ref_db[ph_id].iguess[k] = SS_ref_db[ph_id].xeos[k] / sum_x;
+							}
+							SS_ref_db[ph_id] = (*NLopt_opt[ph_id])(		gv,
+																		SS_ref_db[ph_id]		);
+						}
+					}
+				}
 				if (SS_ref_db[ph_id].status != 3){
 					candidate_ok = 0;
 					if (gv.verbose == 1){
@@ -687,11 +701,14 @@ void ss_min_LP(			global_variable 	 gv,
 		double x_star[LIQ_PC_SYNTH_MAX_DIM];
 		for (int k = 0; k < n_xeos; k++){ x_star[k] = SS_ref_db[ph_id_liq].xeos[k]; }
 
-		double steps[4] = {0.2, 0.4, 0.6, 0.8};
+		// double steps[4] = {0.2, 0.4, 0.6, 0.8};
+		double steps[3] = {0.3, 0.6, 0.9};
+		// double steps[2] = {0.6, 0.9};
+		// double steps[9] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9};
 
-		for (int ic = 0; ic < gv.len_cp; ic++){
+		for (int ic = 0; ic < gv.len_ox; ic++){
 			if (cp[ic].ss_flags[0] == 1 && cp[ic].id == ph_id_liq && ic != liq_candidate_index){
-				for (int si = 0; si < 4; si++){
+				for (int si = 0; si < 3; si++){
 					double s = steps[si];
 					int ok = 1;
 					for (int k = 0; k < n_xeos; k++){

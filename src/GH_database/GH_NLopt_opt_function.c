@@ -48,7 +48,7 @@ SS_ref NLopt_opt_gh_liq_function(global_variable gv, SS_ref SS_ref_db){
     nlopt_set_lower_bounds(SS_ref_db.opt, SS_ref_db.lb);
     nlopt_set_upper_bounds(SS_ref_db.opt, SS_ref_db.ub);
     nlopt_set_min_objective(SS_ref_db.opt, obj_gh_liq, &SS_ref_db);
-    nlopt_add_equality_constraint(SS_ref_db.opt, gh_equality_constraint, NULL, 1e-6);
+    nlopt_add_equality_constraint(SS_ref_db.opt, gh_equality_constraint, NULL, 1e-5);
     nlopt_set_ftol_rel(SS_ref_db.opt, gv.obj_tol);
     nlopt_set_maxeval(SS_ref_db.opt, gv.maxeval);
 
@@ -90,7 +90,7 @@ static SS_ref GH_generic_NLopt_opt_function(global_variable gv, SS_ref SS_ref_db
     nlopt_set_lower_bounds(SS_ref_db.opt, SS_ref_db.lb);
     nlopt_set_upper_bounds(SS_ref_db.opt, SS_ref_db.ub);
     nlopt_set_min_objective(SS_ref_db.opt, obj, &SS_ref_db);
-    nlopt_add_equality_constraint(SS_ref_db.opt, gh_equality_constraint, NULL, 1e-6);
+    nlopt_add_equality_constraint(SS_ref_db.opt, gh_equality_constraint, NULL, 1e-5);
     nlopt_set_ftol_rel(SS_ref_db.opt, gv.obj_tol);
     nlopt_set_maxeval(SS_ref_db.opt, gv.maxeval);
 
