@@ -30,6 +30,9 @@ Function to call solution phase Minimization
 #include "GH_database/GH_gem_function.h"
 #include "phase_update_function.h"
 #include "all_solution_phases.h"
+
+#define LIQ_PC_SYNTH_MAX_DIM 16
+
 /** 
 Function to update xi and sum_xi during local minimization.
 */
@@ -68,9 +71,6 @@ SS_ref SS_UPDATE_function(		global_variable 	 gv,
 		SS_ref_db.sf_ok = 1;
 	}
 	else if (strcmp(gv.research_group, "gh") 	== 0 ){
-		/* "gh" is LP-only for now (no PGE/mu[] support yet, same reason "sb"
-		   forces LP-only - see SetupDatabase), so sf_ok is unused; keep it
-		   satisfied like "sb" rather than the "tc" PGE-oriented check.     */
 		SS_ref_db.sf_ok = 1;
 	}
 
@@ -456,38 +456,6 @@ void init_PGE_from_LP(	global_variable 	 gv,
 
 };
 
-/* ====================================================================
-   "liq" redundant-occurrence pseudocompound synthesis (gh and tc)
-   (see docs/liq_pseudocompound_shortcut.md for the full derivation)
-
-   When many simultaneous liq occurrences (N = count of active cp[] entries
-   with id == liq's phase index) share the same rotated hyperplane, they
-   routinely converge to the same minimum - every NLopt solve after the
-   first is redundant. liq is minimized once in ss_min_LP's main loop
-   (gated below), a refined Gamma is fit by weighted least squares across
-   liq's own endmembers, and 2*N synthetic pseudocompounds are added to
-   the Ppc candidate pool directly on (a linearization of) that refined
-   Gamma hyperplane, evenly spread (antipodal pairs) around the single
-   real minimum - all allocation-free (fixed-size stack scratch only).
-
-   Two research groups are supported, each via its own eval/synth pair,
-   because they differ in ways that go beyond a simple dispatch:
-   - GH_liq_eval_raw / GH_liq_pc_synth: gh's direct p=xeos phases (raw mu
-     hand-reconstructed from mu_Gex+gb_lvl+entropy term, since gh never
-     populates .mu[]; g_eff lives directly in xeos-space; a Sigma(x)=1
-     tangent-projection is required, since gh has that equality constraint).
-   - TC_eval_raw / TC_liq_pc_synth: tc's reduced-basis phases (.mu[]/
-     .df_raw/.p[] are already the raw quantities, no reconstruction needed;
-     but n_xeos != n_em with p(x) genuinely nonlinear, so the endmember-
-     space residual has to be chain-ruled into xeos-space via .dp_dx[][],
-     populated by the objective function itself when called with grad!=NULL;
-     no tangent-projection, since tc uses box bounds only, no equality
-     constraint).
-
-   gv.liq_pc_synth_active is a global on/off switch (default 1) falling
-   back to the legacy per-occurrence NLopt path when set to 0.
-   ==================================================================== */
-#define LIQ_PC_SYNTH_MAX_DIM 16
 
 /**
 	Minimization function for PGE
@@ -552,7 +520,7 @@ void ss_min_LP(			global_variable 	 gv,
 
 			/* NR-17/07/26 
 				Here I added a target rule for rMELTS. The liquid model including H2O and CO2 leads to a large number of local minimum. Brute force exploration is needed to lead the minimization toward the global minimum.
-				This is something that is not needed for the other databases, as the Gibbs surface of liquid have smoother landscape.
+				This is something that is not needed for the other databases, as the Gibbs surface of other liquid models have smoother landscape.
 			*/
 			if (strcmp(gv.db, "rMELTS") == 0){
 				if (gv.global_ite < gv.act_rMELTS_liq_pc_synth){
@@ -713,12 +681,9 @@ void ss_min_LP(			global_variable 	 gv,
 		}	
 	}
 
-	/* stage C replacement: comment out original Gibbs-hyperplane path
-	   and generate pseudocompounds by linear steps from the successful
-	   minimization's xeos to each other liq instance's xeos.
-	   - step size fixed at 0.2, 4 PCs per instance (0.2,0.4,0.6,0.8)
-	   - same bounds checks as original: drop any PC that violates bounds
-	   - keep GH/TC helper functions in the file but do not call them here
+	/**
+	  	If the liquid phase is present and has been minimized successfully, 
+		we can try to synthesize new PCs by linear interpolation between the real minimum and the other PCs of the same phase
 	*/
 	if (liq_synth_active && liq_real_min_found){
 		int n_xeos = SS_ref_db[ph_id_liq].n_xeos;
@@ -727,10 +692,7 @@ void ss_min_LP(			global_variable 	 gv,
 		double x_star[LIQ_PC_SYNTH_MAX_DIM];
 		for (int k = 0; k < n_xeos; k++){ x_star[k] = SS_ref_db[ph_id_liq].xeos[k]; }
 
-		// double steps[4] = {0.2, 0.4, 0.6, 0.8};
 		double steps[3] = {0.3, 0.6, 0.9};
-		// double steps[2] = {0.6, 0.9};
-		// double steps[9] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9};
 
 		for (int ic = 0; ic < gv.len_ox; ic++){
 			if (cp[ic].ss_flags[0] == 1 && cp[ic].id == ph_id_liq && ic != liq_candidate_index){
