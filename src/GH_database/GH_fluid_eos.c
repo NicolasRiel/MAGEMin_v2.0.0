@@ -813,3 +813,451 @@ double GH_duan_CO2_G(double t){
     double g = h0 - t*s0 + R_outer*t*log(phi*p);
     return g;
 }
+
+/* ============================================================================
+   Duan & Zhang (2006) H2O-CO2 EOS - the ACTUAL rhyolite-MELTS "fluid"
+   solution-phase model. Ported 2026-07-17 from real
+   xMELTS-master/sources/fluidPhase.c (byte-identical in
+   xMELTS-FinalH2O-CO2Model): the real "fluid" phase's function pointers
+   (sol_struct_data.h: testFlu/conFlu/actFlu/gmixFlu/...) all resolve into
+   fluidPhase.c, whose engine is duan()/duanH2O()/duanCO2() (DZ2006 virial
+   EOS with composition-dependent mixing rules + fugacity coefficients),
+   with components "h2oduan"/"co2duan" whose standard states are
+   propertiesOfPureH2O/CO2() (ideal-gas h,s + RT*ln(phi*p)) - NOT
+   fluid.c's fluidPhase() (Pitzer-Sterner + the crude linear c[i] mixing),
+   which real MELTS only uses for the LIQUID's H2O/CO2 standard states via
+   gibbs.c. gh's earlier "fl" used the Pitzer-Sterner model by mistake
+   (whose huge, unphysical Gex produced a spurious H2O-CO2 two-fluid
+   split); this port replaces it.
+
+   Value + composition-derivative (Prime) slices only, transcribed
+   VERBATIM from fluidPhase.c's BVc/CVc/DVc/EVc/FVc/Beta/GammaVc
+   AndDerivative general-composition branches (the pure-endpoint branches
+   there are algebraically identical special cases - verified against
+   GH_duan_CO2_G's existing pure-CO2 shortcuts above), the duanDriver
+   volume iteration + lnPhi expressions, and idealGasH2O/CO2. All
+   T-derivative machinery (only needed for real MELTS' Cp/V outputs)
+   dropped. Coefficient switch at p<=2000 bar between the low-P (La) and
+   high-P (Ha) sets, exactly as real duan((p<=2000.0)?1:0, ...).
+
+   Assembly (matching real MELTS exactly, R = 8.3143 J/K = silmin.h's R):
+     g_pure_i  = h0_i(T) - T*s0_i(T) + R*T*ln(phi_pure_i * p)     [propertiesOfPure*]
+     G_mix     = R*T*sum_i x_i*ln(x_i * phi_i^mix / phi_i^pure)   [gmixFlu]
+     G_total   = sum_i x_i*g_pure_i + G_mix                        (J/mol)
+     dG/dx_h2o = mu_H2O - mu_CO2 (Gibbs-Duhem-exact, actFlu's mu form)
+   ============================================================================ */
+
+/* H2O critical constants + DZ2006 coefficient tables (CO2's low-P set and
+   Tc/Pc already exist above as GH_CO2La1..12 / GH_CO2Tc / GH_CO2Pc) */
+static const double GH_H2OTc = 647.25;
+static const double GH_H2OPc = 221.19;
+#define GH_H2OVc (8.314467*GH_H2OTc/GH_H2OPc)
+
+/* pure EOS terms, 0 to 0.2 GPa (fluidPhase.c "La" set) */
+static const double GH_H2OLa1  =  4.38269941E-02;
+static const double GH_H2OLa2  = -1.68244362E-01;
+static const double GH_H2OLa3  = -2.36923373E-01;
+static const double GH_H2OLa4  =  1.13027462E-02;
+static const double GH_H2OLa5  = -7.67764181E-02;
+static const double GH_H2OLa6  =  9.71820593E-02;
+static const double GH_H2OLa7  =  6.62674916E-05;
+static const double GH_H2OLa8  =  1.06637349E-03;
+static const double GH_H2OLa9  = -1.23265258E-03;
+static const double GH_H2OLa10 = -8.93953948E-06;
+static const double GH_H2OLa11 = -3.88124606E-05;
+static const double GH_H2OLa12 =  5.61510206E-05;
+static const double GH_H2OLa   =  7.51274488E-03;
+static const double GH_H2OLb   =  2.51598931E+00;
+static const double GH_H2OLc   =  3.94000000E-02;
+
+/* pure EOS terms, 0.2 to 10 GPa (fluidPhase.c "Ha" set) */
+static const double GH_H2OHa1  =  4.68071541E-02;
+static const double GH_H2OHa2  = -2.81275941E-01;
+static const double GH_H2OHa3  = -2.43926365E-01;
+static const double GH_H2OHa4  =  1.10016958E-02;
+static const double GH_H2OHa5  = -3.86603525E-02;
+static const double GH_H2OHa6  =  9.30095461E-02;
+static const double GH_H2OHa7  = -1.15747171E-05;
+static const double GH_H2OHa8  =  4.19873848E-04;
+static const double GH_H2OHa9  = -5.82739501E-04;
+static const double GH_H2OHa10 =  1.00936000E-06;
+static const double GH_H2OHa11 = -1.01713593E-05;
+static const double GH_H2OHa12 =  1.63934213E-05;
+static const double GH_H2OHa   = -4.49505919E-02;
+static const double GH_H2OHb   = -3.15028174E-01;
+static const double GH_H2OHc   =  1.25000000E-02;
+
+static const double GH_CO2Ha1  =  5.72573440E-03;
+static const double GH_CO2Ha2  =  7.94836769E+00;
+static const double GH_CO2Ha3  = -3.84236281E+01;
+static const double GH_CO2Ha4  =  3.71600369E-02;
+static const double GH_CO2Ha5  = -1.92888994E+00;
+static const double GH_CO2Ha6  =  6.64254770E+00;
+static const double GH_CO2Ha7  = -7.02203950E-06;
+static const double GH_CO2Ha8  =  1.77093234E-02;
+static const double GH_CO2Ha9  = -4.81892026E-02;
+static const double GH_CO2Ha10 =  3.88344869E-06;
+static const double GH_CO2Ha11 = -5.54833167E-04;
+static const double GH_CO2Ha12 =  1.70489748E-03;
+static const double GH_CO2Ha   = -4.13039220E-01;
+static const double GH_CO2Hb   = -8.47988634E+00;
+static const double GH_CO2Hc   =  2.80000000E-02;
+
+/* idealCoeff[][H2O] column (index 0) - the CO2 column exists above */
+static const double GH_idealCoeff_H2O[13] = {
+     3.10409601236035e+01, -3.91422080460869e+01,  3.79695277233575e+01,
+    -2.18374910952284e+01,  7.42251494566339e+00, -1.38178929609470e+00,
+     1.08807067571454e-01, -1.20771176848589e+01,  3.39105078851732e+00,
+    -5.84520979955060e-01,  5.89930846488082e-02, -3.12970001415882e-03,
+     6.57460740981757e-05
+};
+
+#define iW 0    /* H2O index, real fluidPhase.c's "#define H2O 0" */
+#define iC 1    /* CO2 index, real fluidPhase.c's "#define CO2 1" */
+
+/* verbatim fluidPhase.c powSum() - signed-cube-root weighted mean */
+static double GH_powSum(double a, double fa, double b, double fb) {
+    double sum = 0.0;
+    sum += (a >= 0.0) ? fa*pow(a, 1.0/3.0) : -fa*pow(-a, 1.0/3.0);
+    sum += (b >= 0.0) ? fb*pow(b, 1.0/3.0) : -fb*pow(-b, 1.0/3.0);
+    return (sum >= 0.0) ? pow(sum/(fa+fb), 3.0) : -pow(-sum/(fa+fb), 3.0);
+}
+
+/* value + Prime slices of BVc/CVc/DVc/EVc/FVc/Beta/GammaVc AndDerivative,
+   general-composition branches, transcribed verbatim */
+static void GH_dz_coeffs(int useLowPcoeff, double t, const double x[2],
+        double *bv, double bvP[2], double *cv, double cvP[2],
+        double *dv, double dvP[2], double *ev, double evP[2],
+        double *fv, double fvP[2], double *beta, double betaP[2],
+        double *gammav, double gammavP[2]){
+
+    double H2OTr = t/GH_H2OTc;
+    double CO2Tr = t/GH_CO2Tc;
+    double bEnd[2], cEnd[2], dEnd[2], eEnd[2], fEnd[2], betaEnd[2], gammaEnd[2];
+    double k1, k2, k3;
+
+    if (useLowPcoeff) {
+        bEnd[iW] = GH_H2OLa1 + GH_H2OLa2/H2OTr/H2OTr + GH_H2OLa3/H2OTr/H2OTr/H2OTr;
+        bEnd[iC] = GH_CO2La1 + GH_CO2La2/CO2Tr/CO2Tr + GH_CO2La3/CO2Tr/CO2Tr/CO2Tr;
+        k1 = 3.131 - 5.0624e-3*t + 1.8641e-6*t*t - 31.409/t;
+        cEnd[iW] = GH_H2OLa4 + GH_H2OLa5/H2OTr/H2OTr + GH_H2OLa6/H2OTr/H2OTr/H2OTr;
+        cEnd[iC] = GH_CO2La4 + GH_CO2La5/CO2Tr/CO2Tr + GH_CO2La6/CO2Tr/CO2Tr/CO2Tr;
+        k2 = -46.646 + 4.2877e-2*t - 1.0892e-5*t*t + 1.5782e4/t;
+        dEnd[iW] = GH_H2OLa7 + GH_H2OLa8/H2OTr/H2OTr + GH_H2OLa9/H2OTr/H2OTr/H2OTr;
+        dEnd[iC] = GH_CO2La7 + GH_CO2La8/CO2Tr/CO2Tr + GH_CO2La9/CO2Tr/CO2Tr/CO2Tr;
+        eEnd[iW] = GH_H2OLa10 + GH_H2OLa11/H2OTr/H2OTr + GH_H2OLa12/H2OTr/H2OTr/H2OTr;
+        eEnd[iC] = GH_CO2La10 + GH_CO2La11/CO2Tr/CO2Tr + GH_CO2La12/CO2Tr/CO2Tr/CO2Tr;
+        fEnd[iW] = GH_H2OLa/H2OTr/H2OTr/H2OTr;
+        fEnd[iC] = GH_CO2La/CO2Tr/CO2Tr/CO2Tr;
+        betaEnd[iW] = GH_H2OLb;
+        betaEnd[iC] = GH_CO2Lb;
+        gammaEnd[iW] = GH_H2OLc;
+        gammaEnd[iC] = GH_CO2Lc;
+        k3 = 0.9;
+    } else {
+        bEnd[iW] = GH_H2OHa1 + GH_H2OHa2/H2OTr/H2OTr + GH_H2OHa3/H2OTr/H2OTr/H2OTr;
+        bEnd[iC] = GH_CO2Ha1 + GH_CO2Ha2/CO2Tr/CO2Tr + GH_CO2Ha3/CO2Tr/CO2Tr/CO2Tr;
+        k1 = 9.034 - 7.9212e-3*t + 2.3285e-6*t*t - 2.4221e3/t;
+        cEnd[iW] = GH_H2OHa4 + GH_H2OHa5/H2OTr/H2OTr + GH_H2OHa6/H2OTr/H2OTr/H2OTr;
+        cEnd[iC] = GH_CO2Ha4 + GH_CO2Ha5/CO2Tr/CO2Tr + GH_CO2Ha6/CO2Tr/CO2Tr/CO2Tr;
+        k2 = -1.068 + 1.8756e-3*t - 4.9371e-7*t*t + 6.6180e2/t;
+        dEnd[iW] = GH_H2OHa7 + GH_H2OHa8/H2OTr/H2OTr + GH_H2OHa9/H2OTr/H2OTr/H2OTr;
+        dEnd[iC] = GH_CO2Ha7 + GH_CO2Ha8/CO2Tr/CO2Tr + GH_CO2Ha9/CO2Tr/CO2Tr/CO2Tr;
+        eEnd[iW] = GH_H2OHa10 + GH_H2OHa11/H2OTr/H2OTr + GH_H2OHa12/H2OTr/H2OTr/H2OTr;
+        eEnd[iC] = GH_CO2Ha10 + GH_CO2Ha11/CO2Tr/CO2Tr + GH_CO2Ha12/CO2Tr/CO2Tr/CO2Tr;
+        fEnd[iW] = GH_H2OHa/H2OTr/H2OTr/H2OTr;
+        fEnd[iC] = GH_CO2Ha/CO2Tr/CO2Tr/CO2Tr;
+        betaEnd[iW] = GH_H2OHb;
+        betaEnd[iC] = GH_CO2Hb;
+        gammaEnd[iW] = GH_H2OHc;
+        gammaEnd[iC] = GH_CO2Hc;
+        k3 = 1.0;
+    }
+
+    /* BVc general-x branch */
+    *bv  = 0.0;
+    *bv += bEnd[iW]*GH_H2OVc*x[iW]*x[iW];
+    *bv += 2.0*GH_powSum(bEnd[iW], 1.0, bEnd[iC], 1.0)*k1*GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 1.0)*x[iW]*x[iC];
+    *bv += bEnd[iC]*GH_CO2Vc*x[iC]*x[iC];
+
+    bvP[iW]  = 0.0;
+    bvP[iW] += 2.0*bEnd[iW]*GH_H2OVc*x[iW];
+    bvP[iW] += 2.0*GH_powSum(bEnd[iW], 1.0, bEnd[iC], 1.0)*k1*GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 1.0)*x[iC];
+
+    bvP[iC]  = 0.0;
+    bvP[iC] += 2.0*GH_powSum(bEnd[iW], 1.0, bEnd[iC], 1.0)*k1*GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 1.0)*x[iW];
+    bvP[iC] += 2.0*bEnd[iC]*GH_CO2Vc*x[iC];
+
+    /* CVc general-x branch */
+    *cv  = 0.0;
+    *cv += cEnd[iW]*GH_H2OVc*GH_H2OVc*x[iW]*x[iW]*x[iW];
+    *cv += 3.0*GH_powSum(cEnd[iW], 2.0, cEnd[iC], 1.0)*k2*pow( GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 1.0), 2.0)*x[iW]*x[iW]*x[iC];
+    *cv += 3.0*GH_powSum(cEnd[iW], 1.0, cEnd[iC], 2.0)*k2*pow( GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 2.0), 2.0)*x[iW]*x[iC]*x[iC];
+    *cv += cEnd[iC]*GH_CO2Vc*GH_CO2Vc*x[iC]*x[iC]*x[iC];
+
+    cvP[iW]  = 0.0;
+    cvP[iW] += 3.0*cEnd[iW]*GH_H2OVc*GH_H2OVc*x[iW]*x[iW];
+    cvP[iW] += 6.0*GH_powSum(cEnd[iW], 2.0, cEnd[iC], 1.0)*k2*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 1.0), 2.0)*x[iW]*x[iC];
+    cvP[iW] += 3.0*GH_powSum(cEnd[iW], 1.0, cEnd[iC], 2.0)*k2*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 2.0), 2.0)*x[iC]*x[iC];
+
+    cvP[iC]  = 0.0;
+    cvP[iC] += 3.0*GH_powSum(cEnd[iW], 2.0, cEnd[iC], 1.0)*k2*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 1.0), 2.0)*x[iW]*x[iW];
+    cvP[iC] += 6.0*GH_powSum(cEnd[iW], 1.0, cEnd[iC], 2.0)*k2*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 2.0), 2.0)*x[iW]*x[iC];
+    cvP[iC] += 3.0*cEnd[iC]*GH_CO2Vc*GH_CO2Vc*x[iC]*x[iC];
+
+    /* DVc general-x branch (no k factor) */
+    *dv  = 0.0;
+    *dv += dEnd[iW]*GH_H2OVc*GH_H2OVc*GH_H2OVc*GH_H2OVc*x[iW]*x[iW]*x[iW]*x[iW]*x[iW];
+    *dv +=  5.0*GH_powSum(dEnd[iW], 4.0, dEnd[iC], 1.0)*pow(GH_powSum(GH_H2OVc, 4.0, GH_CO2Vc, 1.0), 4.0)*x[iW]*x[iW]*x[iW]*x[iW]*x[iC];
+    *dv += 10.0*GH_powSum(dEnd[iW], 3.0, dEnd[iC], 2.0)*pow(GH_powSum(GH_H2OVc, 3.0, GH_CO2Vc, 2.0), 4.0)*x[iW]*x[iW]*x[iW]*x[iC]*x[iC];
+    *dv += 10.0*GH_powSum(dEnd[iW], 2.0, dEnd[iC], 3.0)*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 3.0), 4.0)*x[iW]*x[iW]*x[iC]*x[iC]*x[iC];
+    *dv +=  5.0*GH_powSum(dEnd[iW], 1.0, dEnd[iC], 4.0)*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 4.0), 4.0)*x[iW]*x[iC]*x[iC]*x[iC]*x[iC];
+    *dv += dEnd[iC]*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*x[iC]*x[iC]*x[iC]*x[iC]*x[iC];
+
+    dvP[iW]  =  0.0;
+    dvP[iW] +=  5.0*dEnd[iW]*GH_H2OVc*GH_H2OVc*GH_H2OVc*GH_H2OVc*x[iW]*x[iW]*x[iW]*x[iW];
+    dvP[iW] += 20.0*GH_powSum(dEnd[iW], 4.0, dEnd[iC], 1.0)*pow(GH_powSum(GH_H2OVc, 4.0, GH_CO2Vc, 1.0), 4.0)*x[iW]*x[iW]*x[iW]*x[iC];
+    dvP[iW] += 30.0*GH_powSum(dEnd[iW], 3.0, dEnd[iC], 2.0)*pow(GH_powSum(GH_H2OVc, 3.0, GH_CO2Vc, 2.0), 4.0)*x[iW]*x[iW]*x[iC]*x[iC];
+    dvP[iW] += 20.0*GH_powSum(dEnd[iW], 2.0, dEnd[iC], 3.0)*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 3.0), 4.0)*x[iW]*x[iC]*x[iC]*x[iC];
+    dvP[iW] +=  5.0*GH_powSum(dEnd[iW], 1.0, dEnd[iC], 4.0)*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 4.0), 4.0)*x[iC]*x[iC]*x[iC]*x[iC];
+
+    dvP[iC]  =  0.0;
+    dvP[iC] +=  5.0*GH_powSum(dEnd[iW], 4.0, dEnd[iC], 1.0)*pow(GH_powSum(GH_H2OVc, 4.0, GH_CO2Vc, 1.0), 4.0)*x[iW]*x[iW]*x[iW]*x[iW];
+    dvP[iC] += 20.0*GH_powSum(dEnd[iW], 3.0, dEnd[iC], 2.0)*pow(GH_powSum(GH_H2OVc, 3.0, GH_CO2Vc, 2.0), 4.0)*x[iW]*x[iW]*x[iW]*x[iC];
+    dvP[iC] += 30.0*GH_powSum(dEnd[iW], 2.0, dEnd[iC], 3.0)*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 3.0), 4.0)*x[iW]*x[iW]*x[iC]*x[iC];
+    dvP[iC] += 20.0*GH_powSum(dEnd[iW], 1.0, dEnd[iC], 4.0)*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 4.0), 4.0)*x[iW]*x[iC]*x[iC]*x[iC];
+    dvP[iC] +=  5.0*dEnd[iC]*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*x[iC]*x[iC]*x[iC]*x[iC];
+
+    /* EVc general-x branch (no k factor) */
+    *ev  = 0.0;
+    *ev += eEnd[iW]*GH_H2OVc*GH_H2OVc*GH_H2OVc*GH_H2OVc*GH_H2OVc*x[iW]*x[iW]*x[iW]*x[iW]*x[iW]*x[iW];
+    *ev +=  6.0*GH_powSum(eEnd[iW], 5.0, eEnd[iC], 1.0)*pow(GH_powSum(GH_H2OVc, 5.0, GH_CO2Vc, 1.0), 5.0)*x[iW]*x[iW]*x[iW]*x[iW]*x[iW]*x[iC];
+    *ev += 15.0*GH_powSum(eEnd[iW], 4.0, eEnd[iC], 2.0)*pow(GH_powSum(GH_H2OVc, 4.0, GH_CO2Vc, 2.0), 5.0)*x[iW]*x[iW]*x[iW]*x[iW]*x[iC]*x[iC];
+    *ev += 20.0*GH_powSum(eEnd[iW], 3.0, eEnd[iC], 3.0)*pow(GH_powSum(GH_H2OVc, 3.0, GH_CO2Vc, 3.0), 5.0)*x[iW]*x[iW]*x[iW]*x[iC]*x[iC]*x[iC];
+    *ev += 15.0*GH_powSum(eEnd[iW], 2.0, eEnd[iC], 4.0)*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 4.0), 5.0)*x[iW]*x[iW]*x[iC]*x[iC]*x[iC]*x[iC];
+    *ev +=  6.0*GH_powSum(eEnd[iW], 1.0, eEnd[iC], 5.0)*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 5.0), 5.0)*x[iW]*x[iC]*x[iC]*x[iC]*x[iC]*x[iC];
+    *ev += eEnd[iC]*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*x[iC]*x[iC]*x[iC]*x[iC]*x[iC]*x[iC];
+
+    evP[iW]  =  0.0;
+    evP[iW] +=  6.0*eEnd[iW]*GH_H2OVc*GH_H2OVc*GH_H2OVc*GH_H2OVc*GH_H2OVc*x[iW]*x[iW]*x[iW]*x[iW]*x[iW];
+    evP[iW] += 30.0*GH_powSum(eEnd[iW], 5.0, eEnd[iC], 1.0)*pow(GH_powSum(GH_H2OVc, 5.0, GH_CO2Vc, 1.0), 5.0)*x[iW]*x[iW]*x[iW]*x[iW]*x[iC];
+    evP[iW] += 60.0*GH_powSum(eEnd[iW], 4.0, eEnd[iC], 2.0)*pow(GH_powSum(GH_H2OVc, 4.0, GH_CO2Vc, 2.0), 5.0)*x[iW]*x[iW]*x[iW]*x[iC]*x[iC];
+    evP[iW] += 60.0*GH_powSum(eEnd[iW], 3.0, eEnd[iC], 3.0)*pow(GH_powSum(GH_H2OVc, 3.0, GH_CO2Vc, 3.0), 5.0)*x[iW]*x[iW]*x[iC]*x[iC]*x[iC];
+    evP[iW] += 30.0*GH_powSum(eEnd[iW], 2.0, eEnd[iC], 4.0)*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 4.0), 5.0)*x[iW]*x[iC]*x[iC]*x[iC]*x[iC];
+    evP[iW] +=  6.0*GH_powSum(eEnd[iW], 1.0, eEnd[iC], 5.0)*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 5.0), 5.0)*x[iC]*x[iC]*x[iC]*x[iC]*x[iC];
+
+    evP[iC]  =  0.0;
+    evP[iC] +=  6.0*GH_powSum(eEnd[iW], 5.0, eEnd[iC], 1.0)*pow(GH_powSum(GH_H2OVc, 5.0, GH_CO2Vc, 1.0), 5.0)*x[iW]*x[iW]*x[iW]*x[iW]*x[iW];
+    evP[iC] += 30.0*GH_powSum(eEnd[iW], 4.0, eEnd[iC], 2.0)*pow(GH_powSum(GH_H2OVc, 4.0, GH_CO2Vc, 2.0), 5.0)*x[iW]*x[iW]*x[iW]*x[iW]*x[iC];
+    evP[iC] += 60.0*GH_powSum(eEnd[iW], 3.0, eEnd[iC], 3.0)*pow(GH_powSum(GH_H2OVc, 3.0, GH_CO2Vc, 3.0), 5.0)*x[iW]*x[iW]*x[iW]*x[iC]*x[iC];
+    evP[iC] += 60.0*GH_powSum(eEnd[iW], 2.0, eEnd[iC], 4.0)*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 4.0), 5.0)*x[iW]*x[iW]*x[iC]*x[iC]*x[iC];
+    evP[iC] += 30.0*GH_powSum(eEnd[iW], 1.0, eEnd[iC], 5.0)*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 5.0), 5.0)*x[iW]*x[iC]*x[iC]*x[iC]*x[iC];
+    evP[iC] +=  6.0*eEnd[iC]*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*GH_CO2Vc*x[iC]*x[iC]*x[iC]*x[iC]*x[iC];
+
+    /* FVc general-x branch (no k factor) */
+    *fv  = 0.0;
+    *fv += fEnd[iW]*GH_H2OVc*GH_H2OVc*x[iW]*x[iW];
+    *fv += 2.0*GH_powSum(fEnd[iW], 1.0, fEnd[iC], 1.0)*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 1.0), 2.0)*x[iW]*x[iC];
+    *fv += fEnd[iC]*GH_CO2Vc*GH_CO2Vc*x[iC]*x[iC];
+
+    fvP[iW]  = 0.0;
+    fvP[iW] += 2.0*fEnd[iW]*GH_H2OVc*GH_H2OVc*x[iW];
+    fvP[iW] += 2.0*GH_powSum(fEnd[iW], 1.0, fEnd[iC], 1.0)*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 1.0), 2.0)*x[iC];
+
+    fvP[iC]  = 0.0;
+    fvP[iC] += 2.0*GH_powSum(fEnd[iW], 1.0, fEnd[iC], 1.0)*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 1.0), 2.0)*x[iW];
+    fvP[iC] += 2.0*fEnd[iC]*GH_CO2Vc*GH_CO2Vc*x[iC];
+
+    /* Beta (linear mixing, no endpoint branching beyond the table switch) */
+    *beta  = betaEnd[iW]*x[iW] + betaEnd[iC]*x[iC];
+    betaP[iW] = betaEnd[iW];
+    betaP[iC] = betaEnd[iC];
+
+    /* GammaVc general-x branch */
+    *gammav  = 0.0;
+    *gammav += gammaEnd[iW]*GH_H2OVc*GH_H2OVc*x[iW]*x[iW]*x[iW];
+    *gammav += 3.0*GH_powSum(gammaEnd[iW], 2.0, gammaEnd[iC], 1.0)*k3*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 1.0), 2.0)*x[iW]*x[iW]*x[iC];
+    *gammav += 3.0*GH_powSum(gammaEnd[iW], 1.0, gammaEnd[iC], 2.0)*k3*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 2.0), 2.0)*x[iW]*x[iC]*x[iC];
+    *gammav += gammaEnd[iC]*GH_CO2Vc*GH_CO2Vc*x[iC]*x[iC]*x[iC];
+
+    gammavP[iW]  = 0.0;
+    gammavP[iW] += 3.0*gammaEnd[iW]*GH_H2OVc*GH_H2OVc*x[iW]*x[iW];
+    gammavP[iW] += 6.0*GH_powSum(gammaEnd[iW], 2.0, gammaEnd[iC], 1.0)*k3*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 1.0), 2.0)*x[iW]*x[iC];
+    gammavP[iW] += 3.0*GH_powSum(gammaEnd[iW], 1.0, gammaEnd[iC], 2.0)*k3*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 2.0), 2.0)*x[iC]*x[iC];
+
+    gammavP[iC]  = 0.0;
+    gammavP[iC] += 3.0*GH_powSum(gammaEnd[iW], 2.0, gammaEnd[iC], 1.0)*k3*pow(GH_powSum(GH_H2OVc, 2.0, GH_CO2Vc, 1.0), 2.0)*x[iW]*x[iW];
+    gammavP[iC] += 6.0*GH_powSum(gammaEnd[iW], 1.0, gammaEnd[iC], 2.0)*k3*pow(GH_powSum(GH_H2OVc, 1.0, GH_CO2Vc, 2.0), 2.0)*x[iW]*x[iC];
+    gammavP[iC] += 3.0*gammaEnd[iC]*GH_CO2Vc*GH_CO2Vc*x[iC]*x[iC];
+}
+
+/* duanDriver's volume iteration + lnPhi expressions, verbatim (value only) */
+static void GH_dz_phi_driver(int useLowPcoeff, double t, double p, const double x[2],
+                      double *lnPhiH2O, double *lnPhiCO2){
+    double bv, cv, dv, ev, fv, beta, gammav;
+    double bvP[2], cvP[2], dvP[2], evP[2], fvP[2], betaP[2], gammavP[2];
+    double v, z;
+
+    GH_dz_coeffs(useLowPcoeff, t, x, &bv, bvP, &cv, cvP, &dv, dvP, &ev, evP, &fv, fvP, &beta, betaP, &gammav, gammavP);
+
+    {
+        int iter = 0;
+        double delv = 1.0, vPrevious = 1.0, delvPrevious = 1.0;
+
+        v = 8.314467*t/p;
+        while (iter < 200) {
+            z = 1.0 + bv/v + cv/v/v + dv/v/v/v/v + ev/v/v/v/v/v + (fv/v/v) * (beta + gammav/v/v) * exp(-gammav/v/v);
+            delv = z*8.314467*t/p - v;
+            if ( ((iter > 1) && (delv*delvPrevious < 0.0)) || (fabs(delv) < v*100.0*DBL_EPSILON) ) break;
+            vPrevious = v;
+            delvPrevious = delv;
+            v = (z*8.314467*t/p + v)/2.0;
+            iter++;
+        }
+        if (iter < 200 && fabs(delv) > v*100.0*DBL_EPSILON) {
+            double dx;
+            double rtb = (delv < 0.0) ? (dx = vPrevious-v,v) : (dx = v-vPrevious,vPrevious);
+            iter = 0;
+            while (iter < 200) {
+                v = rtb + (dx *= 0.5);
+                z = 1.0 + bv/v + cv/v/v + dv/v/v/v/v + ev/v/v/v/v/v + (fv/v/v) * (beta + gammav/v/v) * exp(-gammav/v/v);
+                delv = z*8.314467*t/p - v;
+                if (delv <= 0.0) rtb = v;
+                if ( (fabs(dx) < 100.0*DBL_EPSILON) || (delv == 0.0) ) break;
+                iter++;
+            }
+        }
+    }
+
+    *lnPhiH2O  = 0.0;
+    *lnPhiH2O += -log(z);
+    *lnPhiH2O += bvP[iW]/v;
+    *lnPhiH2O += cvP[iW]/2.0/v/v;
+    *lnPhiH2O += dvP[iW]/4.0/v/v/v/v;
+    *lnPhiH2O += evP[iW]/5.0/v/v/v/v/v;
+    *lnPhiH2O += ((fvP[iW]*beta + betaP[iW]*fv)/2.0/gammav)*(1.0-exp(-gammav/v/v));
+    *lnPhiH2O += ((fvP[iW]*gammav+gammavP[iW]*fv-fv*beta*(gammavP[iW]-gammav))/2.0/gammav/gammav)
+                *(1.0 - (gammav/v/v + 1.0)*exp(-gammav/v/v));
+    *lnPhiH2O += ((gammavP[iW]-gammav)*fv/2.0/gammav/gammav)*(-2.0 + (gammav*gammav/v/v/v/v + 2.0*gammav/v/v + 2.0)*exp(-gammav/v/v));
+
+    *lnPhiCO2  = 0.0;
+    *lnPhiCO2 += -log(z);
+    *lnPhiCO2 += bvP[iC]/v;
+    *lnPhiCO2 += cvP[iC]/2.0/v/v;
+    *lnPhiCO2 += dvP[iC]/4.0/v/v/v/v;
+    *lnPhiCO2 += evP[iC]/5.0/v/v/v/v/v;
+    *lnPhiCO2 += ((fvP[iC]*beta + betaP[iC]*fv)/2.0/gammav)*(1.0-exp(-gammav/v/v));
+    *lnPhiCO2 += ((fvP[iC]*gammav+gammavP[iC]*fv-fv*beta*(gammavP[iC]-gammav))/2.0/gammav/gammav)
+                *(1.0 - (gammav/v/v + 1.0)*exp(-gammav/v/v));
+    *lnPhiCO2 += ((gammavP[iC]-gammav)*fv/2.0/gammav/gammav)*(-2.0 + (gammav*gammav/v/v/v/v + 2.0*gammav/v/v + 2.0)*exp(-gammav/v/v));
+}
+
+/* real duan()/duanH2O()/duanCO2() wrapper behavior: above 2000 bar the
+   high-P (Ha) coefficient set is SPLICED onto the low-P (La) one for
+   continuity - lnPhi(p>2000) = lnPhi_Ha(p) + lnPhi_La(2000) - lnPhi_Ha(2000),
+   evaluated at the same composition (fluidPhase.c lines 1788-1810/1968-1982).
+   Without this the two coefficient sets disagree at 2000 bar by a
+   T-dependent constant (measured up to ~9.3 kJ at 873 K) - found via the
+   first benchmark pass, which was exact below 2000 bar and offset by
+   exactly that constant above. */
+static void GH_dz_phi(double t, double p, const double x[2],
+                      double *lnPhiH2O, double *lnPhiCO2){
+    int useLow = (p <= 2000.0) ? 1 : 0;
+    GH_dz_phi_driver(useLow, t, p, x, lnPhiH2O, lnPhiCO2);
+    if (!useLow){
+        double loW, loC, hiW, hiC;
+        GH_dz_phi_driver(1, t, 2000.0, x, &loW, &loC);
+        GH_dz_phi_driver(0, t, 2000.0, x, &hiW, &hiC);
+        *lnPhiH2O += loW - hiW;
+        *lnPhiCO2 += loC - hiC;
+    }
+}
+
+/* idealGasH2O/idealGasCO2 h0(t), s0(t) (values only), verbatim */
+static void GH_dz_ideal_hs(int is_h2o, double t, double *h0, double *s0){
+    const double *ic = is_h2o ? GH_idealCoeff_H2O : GH_idealCoeff_CO2;
+    int i;
+    *h0 = 0.0;
+    for (i=0; i<7; i++) *h0 += ic[i]*pow(t/1000.0, (double) (i+1))/((double) (i+1));
+    *h0 += ic[7]*log(t/1000.0);
+    for (i=8; i<13; i++) *h0 += ic[i]/pow(t/1000.0, (double) (i-7))/((double) (7-i));
+    *s0 = ic[0]*log(t/1000.0);
+    for (i=1; i<7; i++)  *s0 += ic[i]*pow(t/1000.0, (double) i)/((double) i);
+    for (i=7; i<13; i++) *s0 += ic[i]/pow(t/1000.0, (double) (i-6))/((double) (6-i));
+    *h0 *= 8.31451*1000.0;
+    *s0 *= 8.31451;
+    if (is_h2o){ *h0 += -355665.4136; *s0 +=  359.6505; }
+    else       { *h0 += -385358.2260; *s0 +=  210.0304; }
+}
+
+/* == real propertiesOfPureH2O/CO2's g output (J/mol): ideal-gas h-T*s +
+   R*T*ln(phi_pure*p), phi_pure from the DZ2006 EOS at the pure endpoint */
+double GH_duan_pure_G(int is_h2o, double t, double p){
+    const double R_ = 8.3143;
+    double x[2] = { is_h2o ? 1.0 : 0.0, is_h2o ? 0.0 : 1.0 };
+    double lnPhiW, lnPhiC, h0, s0;
+    GH_dz_phi(t, p, x, &lnPhiW, &lnPhiC);
+    GH_dz_ideal_hs(is_h2o, t, &h0, &s0);
+    return h0 - t*s0 + R_*t*log(exp(is_h2o ? lnPhiW : lnPhiC)*p);
+}
+
+/* Full DZ2006 fluid G(x) in J/mol (x_h2o = mole fraction H2O), plus
+   dG/dx_h2o = mu_H2O - mu_CO2 (Gibbs-Duhem-exact). Endpoint guards match
+   real gmixFlu's 100*DBL_EPSILON zero-mixing cutoffs. */
+double GH_duan_mix_G(double x_h2o, double t, double p, double *dGdx_h2o){
+    const double R_ = 8.3143;
+    double gW = GH_duan_pure_G(1, t, p);
+    double gC = GH_duan_pure_G(0, t, p);
+    double x[2] = { x_h2o, 1.0 - x_h2o };
+
+    if ((fabs(x[iC]) < 100.0*DBL_EPSILON) || (fabs(x[iW]) < 100.0*DBL_EPSILON)){
+        if (dGdx_h2o != (double *) 0) *dGdx_h2o = gW - gC;
+        return x[iW]*gW + x[iC]*gC;
+    }
+
+    double lnPhiW, lnPhiC, lnPhiWpure, lnPhiCpure, h0, s0, dum;
+    GH_dz_phi(t, p, x, &lnPhiW, &lnPhiC);
+    {
+        double xp[2] = {1.0, 0.0};
+        GH_dz_phi(t, p, xp, &lnPhiWpure, &dum);
+    }
+    {
+        double xp[2] = {0.0, 1.0};
+        GH_dz_phi(t, p, xp, &dum, &lnPhiCpure);
+    }
+
+    double muW = gW + R_*t*(log(x[iW]) + lnPhiW - lnPhiWpure);
+    double muC = gC + R_*t*(log(x[iC]) + lnPhiC - lnPhiCpure);
+
+    if (dGdx_h2o != (double *) 0) *dGdx_h2o = muW - muC;
+    return x[iW]*muW + x[iC]*muC;
+}
+
+/* Mixing-only chemical potentials of the DZ2006 fluid (J/mol):
+   muGex_i = R*T*ln(x_i * phi_i^mix / phi_i^pure)  - actFlu's mu[] exactly
+   (fluidPhase.c line 2486-2487). The pure-component standard states
+   GH_duan_pure_G belong in gbase[] (so the LP/NLopt hyperplane rotation
+   applies to them); these mixing parts are what obj_gh_fluid adds on top.
+   Endpoint guards match real gmixFlu/actFlu's 100*DBL_EPSILON cutoffs. */
+void GH_duan_mix_muGex(double x_h2o, double t, double p, double *muW, double *muC){
+    const double R_ = 8.3143;
+    double x[2] = { x_h2o, 1.0 - x_h2o };
+
+    if ((fabs(x[iC]) < 100.0*DBL_EPSILON) || (fabs(x[iW]) < 100.0*DBL_EPSILON)){
+        *muW = 0.0; *muC = 0.0;
+        return;
+    }
+
+    double lnPhiW, lnPhiC, lnPhiWpure, lnPhiCpure, dum;
+    GH_dz_phi(t, p, x, &lnPhiW, &lnPhiC);
+    {
+        double xp[2] = {1.0, 0.0};
+        GH_dz_phi(t, p, xp, &lnPhiWpure, &dum);
+    }
+    {
+        double xp[2] = {0.0, 1.0};
+        GH_dz_phi(t, p, xp, &dum, &lnPhiCpure);
+    }
+    *muW = R_*t*(log(x[iW]) + lnPhiW - lnPhiWpure);
+    *muC = R_*t*(log(x[iC]) + lnPhiC - lnPhiCpure);
+}

@@ -434,42 +434,36 @@ double obj_gh_fluid(unsigned n, const double *x, double *grad, void *SS_ref_db){
     for (int i = 0; i < 2; i++){ p[i] = x[i]; }
     double x0 = p[0], x1 = p[1];
 
-    double dGdx0;
-    double Gtot = GH_pitzer_sterner_mix_G(x0, T, Pbar, &dGdx0)/1000.0; /* J -> kJ */
-    dGdx0 /= 1000.0;
+    /* Duan & Zhang (2006) - the ACTUAL rhyolite-MELTS "fluid" phase model
+       (fluidPhase.c's gmixFlu/actFlu engine + "h2oduan"/"co2duan"
+       propertiesOfPureH2O/CO2 standard states), ported+verified exact
+       (0.000000 J worst diff vs the real library for G AND dG/dx over
+       873-1673K x 500-9000bar x full composition range, incl. the 2000-bar
+       low-P/high-P coefficient splice). Replaced GH_pitzer_sterner_mix_G
+       (+ an h-Ts reference correction) 2026-07-17: that model is only real
+       MELTS' LIQUID H2O/CO2 standard-state helper (fluid.c), never its
+       fluid phase - its crude linear-c[i] mixing carried a huge unphysical
+       Gex (~+25 kJ at x=0.5) that produced a spurious pure-H2O + pure-CO2
+       two-fluid split; DZ2006 mixes near-ideally and gives the single
+       mixed fluid real rhyolite-MELTS predicts.
 
-    /* Reference-state correction: GH_pitzer_sterner_mix_G returns the raw
-       fluid *g*, but real MELTS calibrates the fluid on *h - T*s* (fluid.c
-       applies three INDEPENDENT additive shifts to g, h, s - its own
-       calibrated constants, NOT a thermodynamically consistent triple, so
-       g_shifted != h_shifted - T*s_shifted). This is the SAME bug already
-       fixed for the standalone "H2O" pure phase via
-       GH_pitzer_sterner_H2O_hTs_G - it was just never applied to "fl". Left
-       uncorrected, fl's endpoints are ~70.8 kJ (H2O) / ~62.9 kJ (CO2) too
-       UNSTABLE, so fl never exsolves even when it should (real rMELTS
-       predicts a CO2 fluid where gh dumped all the CO2 into liq). Recover
-       h_shifted - T*s_shifted = g_raw + (shift_h - shift_g) - T*shift_s per
-       component, using fluid.c's own refH2O/refCO2 (Berman 1988) constants
-       and its per-component 298.15K/1bar EOS baselines (fluid.c ~line
-       657-665). At pure H2O this makes fl's endpoint byte-match the
-       standalone "H2O" phase's GH_pitzer_sterner_H2O_hTs_G. */
-    {
-        const double refH2O_g = -228538.00, refH2O_h = -241816.00, refH2O_s = 188.72;
-        const double baseH2O_g = -46493.8016496949, baseH2O_h = 9430.96281231262, baseH2O_s = 187.572582951064;
-        const double refCO2_g = -394341.00, refCO2_h = -393510.00, refCO2_s = 213.677;
-        const double baseCO2_g = -394450.0, baseCO2_h = -330735.0, baseCO2_s = 213.698;
-        double corrH2O = ((refH2O_h - baseH2O_h) - (refH2O_g - baseH2O_g)) - T*(refH2O_s - baseH2O_s);
-        double corrCO2 = ((refCO2_h - baseCO2_h) - (refCO2_g - baseCO2_g)) - T*(refCO2_s - baseCO2_s);
-        corrH2O /= 1000.0; corrCO2 /= 1000.0;   /* J -> kJ */
-        Gtot   += x0*corrH2O + (1.0-x0)*corrCO2;
-        dGdx0  += corrH2O - corrCO2;
-    }
-
-    double Gex    = Gtot - x0*gb[0] - x1*gb[1];
-    double dGexdx = dGdx0 - gb[0] + gb[1];
-
-    mu_Gex[0] = Gex + (1.0-x0)*dGexdx;
-    mu_Gex[1] = Gex - x0*dGexdx;
+       Wiring fixed at the same time: the old code back-computed
+       Gex = Gtot - x*gb and then re-added gb, which cancels ALGEBRAICALLY -
+       df was the absolute Gtot(x), so the NLopt minimization was blind to
+       the rotated hyperplane (Gamma) and always slid to the lowest-absolute-G
+       endpoint (pure CO2), leaving raw levelling PCs to patch the LP (the
+       "fl pseudocompound that did not minimize" symptom). The old model's
+       huge Gex barrier masked this by trapping NLopt on each side of the
+       gap. Now the DZ2006 PURE standard states live in gbase[] (set in
+       G_SS_gh_fluid_function, so rotate_hyperplane applies Gamma to them
+       exactly like every other gh phase) and this objective adds only the
+       MIXING chemical potentials muGex_i = R*T*ln(x_i*phi_i/phi_i_pure)
+       (actFlu's mu[] exactly). Gradient form is the standard gh pattern -
+       exact by Gibbs-Duhem (sum x*dmu = 0 at constant T,P). */
+    double muW, muC;
+    GH_duan_mix_muGex(x0, T, Pbar, &muW, &muC);
+    mu_Gex[0] = muW/1000.0;   /* J -> kJ */
+    mu_Gex[1] = muC/1000.0;
     d->sf[0] = p[0]; d->sf[1] = p[1];
 
     d->sum_apep = 0.0;

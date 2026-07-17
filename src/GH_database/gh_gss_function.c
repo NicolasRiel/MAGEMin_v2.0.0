@@ -15,6 +15,7 @@
 #include "../initialize.h"
 #include "gh_gss_function.h"
 #include "GH_gem_function.h"
+#include "GH_fluid_eos.h"
 
 /**
     Boil-out test for a solution-phase endmember: true if any oxide it
@@ -536,17 +537,20 @@ SS_ref G_SS_gh_ol_function(SS_ref SS_ref_db, char* research_group, int EM_datase
 }
 
 /**
-    Real mixed H2O-CO2 fluid (Pitzer & Sterner 1994), from xMELTS'
-    sources/fluid.c fluidPhase() - the general (composition-dependent)
-    branch that GH_pitzer_sterner_G/GH_fluid_eos.c deliberately dropped
-    when only the pure-endmember standard states were needed (for the
-    "H2O" pure phase). gbase[0]/gbase[1] here are just the two pure-fluid
-    endmembers (identical to the existing "H2O" pure phase's own gbase,
-    and the CO2 equivalent that has no other outlet in gh); the entire
-    mixing physics (a genuine EOS cross-term, not a Margules Gex) lives in
-    obj_gh_fluid via GH_pitzer_sterner_mix_G - so, unlike every other gh
-    solution phase, W[] is unused here (n_w=0).
-*/
+    Real mixed H2O-CO2 fluid: Duan & Zhang (2006), ported 2026-07-17 from
+    real fluidPhase.c - the ACTUAL rhyolite-MELTS "fluid" solution phase
+    (sol_struct_data.h's gmixFlu/actFlu function pointers + "h2oduan"/
+    "co2duan" components, standard states = propertiesOfPureH2O/CO2).
+    gbase[0]/gbase[1] = the DZ2006 pure-fluid standard states
+    (GH_duan_pure_G, byte-exact vs real propertiesOfPure*), so the LP/NLopt
+    hyperplane rotation applies to them exactly like every other gh phase;
+    the mixing physics (fugacity-based, near-ideal - a genuine EOS
+    cross-term, not a Margules Gex) lives in obj_gh_fluid via
+    GH_duan_mix_muGex - so, unlike every other gh solution phase, W[] is
+    unused here (n_w=0). The previous Pitzer-Sterner version (fluid.c's
+    fluidPhase, crude linear-c mixing) was a porting mistake - real MELTS
+    only uses that model for the LIQUID's H2O/CO2 standard states. The
+    em_data fetches below are kept solely for Comp[]/ElMods/boil-out. */
 SS_ref G_SS_gh_fluid_function(SS_ref SS_ref_db, char* research_group, int EM_dataset, int len_ox, bulk_info z_b, double eps){
     strcpy(SS_ref_db.fName,"fluid_MELTS");
     int i;
@@ -557,17 +561,13 @@ SS_ref G_SS_gh_fluid_function(SS_ref SS_ref_db, char* research_group, int EM_dat
         strcpy(SS_ref_db.EM_list[i], EM_tmp[i]);
     };
 
-    /* Kept on the liquid's own "H2O" formula (not the standalone "water"
-       phase's), preserving this phase's existing, previously-verified
-       gbase[0] value unchanged - see GH_gem_function.h's
-       GH_H2O_liquid_context comment and [[gh-fluid-mixing-model]]. */
     GH_H2O_liquid_context = 1;
     em_data h2o_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "H2O", "equilibrium");
     GH_H2O_liquid_context = 0;
     em_data co2_eq = get_em_data(research_group, EM_dataset, len_ox, z_b, SS_ref_db.P, SS_ref_db.T, "CO2", "equilibrium");
 
-    SS_ref_db.gbase[0] = h2o_eq.gb;
-    SS_ref_db.gbase[1] = co2_eq.gb;
+    SS_ref_db.gbase[0] = GH_duan_pure_G(1, SS_ref_db.T, SS_ref_db.P*1000.0)/1000.0;   /* J -> kJ */
+    SS_ref_db.gbase[1] = GH_duan_pure_G(0, SS_ref_db.T, SS_ref_db.P*1000.0)/1000.0;
 
     SS_ref_db.ElShearMod[0] = h2o_eq.ElShearMod;
     SS_ref_db.ElShearMod[1] = co2_eq.ElShearMod;
