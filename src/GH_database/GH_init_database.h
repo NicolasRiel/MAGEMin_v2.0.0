@@ -19,7 +19,7 @@
         int     n_pp;
         int     n_ss;
         char    ox[13][20];
-        char    PP[26][20];
+        char    PP[25][20];
         char    SS[16][20];
 
         int     verifyPC[16];

@@ -75,6 +75,7 @@ struct PP_refs
     phase_bulkModulus::Cdouble
     phase_cp::Cdouble
     phase_expansivity::Cdouble
+    phase_compressibility::Cdouble
     phase_isoTbulkModulus::Cdouble
     thetaExp::Cdouble
     phase_entropy::Cdouble
@@ -790,6 +791,7 @@ mutable struct global_variables
     maxeval::Cint
     bnd_val::Cdouble
     obj_refine_fac::Cdouble
+    act_rMELTS_liq_pc_synth::Cint
     liq_pc_synth_active::Cint
     gh_liq_pc_synth_h::Cdouble
     gh_liq_pc_synth_threshold::Cint
@@ -852,6 +854,7 @@ mutable struct global_variables
     system_enthalpy::Cdouble
     system_cp::Cdouble
     system_expansivity::Cdouble
+    system_compressibility::Cdouble
     system_bulkModulus::Cdouble
     system_shearModulus::Cdouble
     system_Vp::Cdouble
@@ -1136,6 +1139,7 @@ struct csd_phase_sets
     phase_density::Cdouble
     phase_cp::Cdouble
     phase_expansivity::Cdouble
+    phase_compressibility::Cdouble
     phase_bulkModulus::Cdouble
     phase_isoTbulkModulus::Cdouble
     thetaExp::Cdouble
@@ -1153,6 +1157,7 @@ struct stb_SS_phases
     deltaG::Cdouble
     V::Cdouble
     alpha::Cdouble
+    beta::Cdouble
     cp::Cdouble
     entropy::Cdouble
     enthalpy::Cdouble
@@ -1208,6 +1213,7 @@ struct stb_PP_phases
     deltaG::Cdouble
     V::Cdouble
     alpha::Cdouble
+    beta::Cdouble
     cp::Cdouble
     entropy::Cdouble
     enthalpy::Cdouble
@@ -1253,6 +1259,7 @@ struct stb_systems
     aMgO::Cdouble
     aFeO::Cdouble
     alpha::Cdouble
+    beta::Cdouble
     cp::Cdouble
     s_cp::Cdouble
     cp_wt::Cdouble
@@ -1840,7 +1847,7 @@ mutable struct gh_datasets
     n_pp::Cint
     n_ss::Cint
     ox::NTuple{13, NTuple{20, Cchar}}
-    PP::NTuple{26, NTuple{20, Cchar}}
+    PP::NTuple{25, NTuple{20, Cchar}}
     SS::NTuple{16, NTuple{20, Cchar}}
     verifyPC::NTuple{16, Cint}
     n_SS_PC::NTuple{16, Cint}
@@ -3608,6 +3615,7 @@ struct SS_data
     deltaG::Cdouble
     V::Cdouble
     alpha::Cdouble
+    beta::Cdouble
     entropy::Cdouble
     enthalpy::Cdouble
     cp::Cdouble
@@ -3633,7 +3641,7 @@ struct SS_data
 end
 
 function Base.convert(::Type{SS_data}, a::stb_SS_phases) 
-    return SS_data(a.f, a.G, a.deltaG, a.V, a.alpha, a.entropy, a.enthalpy, a.cp, a.rho, a.bulkMod, a.shearMod, a.Vp, a.Vs,
+    return SS_data(a.f, a.G, a.deltaG, a.V, a.alpha, a.beta, a.entropy, a.enthalpy, a.cp, a.rho, a.bulkMod, a.shearMod, a.Vp, a.Vs,
                                     unsafe_wrap( Vector{Cdouble},        a.Comp,             a.nOx),
                                     unsafe_wrap( Vector{Cdouble},        a.Comp_wt,          a.nOx),
                                     unsafe_wrap( Vector{Cdouble},        a.Comp_apfu,        a.nOx),
@@ -3686,6 +3694,7 @@ struct PP_data
     deltaG::Cdouble
     V::Cdouble
     alpha::Cdouble
+    beta::Cdouble
     entropy::Cdouble
     enthalpy::Cdouble
     cp::Cdouble
@@ -3700,7 +3709,7 @@ struct PP_data
 end
 
 function Base.convert(::Type{PP_data}, a::stb_PP_phases) 
-    return PP_data(a.f, a.G, a.deltaG, a.V, a.alpha, a.entropy, a.enthalpy, a.cp, a.rho, a.bulkMod, a.shearMod, a.Vp, a.Vs,
+    return PP_data(a.f, a.G, a.deltaG, a.V, a.alpha, a.beta, a.entropy, a.enthalpy, a.cp, a.rho, a.bulkMod, a.shearMod, a.Vp, a.Vs,
                     unsafe_wrap(Vector{Cdouble},a.Comp, a.nOx),
                     unsafe_wrap(Vector{Cdouble},a.Comp_wt, a.nOx),
                     unsafe_wrap(Vector{Cdouble},a.Comp_apfu, a.nOx))

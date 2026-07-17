@@ -1667,6 +1667,7 @@ global_variable compute_density_volume_modulus(				int 				 EM_database,
 			cp[i].phase_cp 	 		 = 0.0;
 			cp[i].volume 	 		 = 0.0;
 			cp[i].phase_expansivity	 = 0.0;
+			cp[i].phase_compressibility = 0.0;
 			cp[i].phase_bulkModulus  = 0.0;
 			cp[i].phase_shearModulus = 0.0;
 			cp[i].phase_entropy  	 = 0.0;
@@ -1703,9 +1704,11 @@ global_variable compute_density_volume_modulus(				int 				 EM_database,
 						cp[i].phase_cp    		+= SS_ref_db[ss].ElCp[j]*cp[i].p_em[j];
 					}
 					else{
+						
 						cp[i].phase_expansivity += (1.0/(dGdP*10.0)*((dGdTPP-dGdTMP)/(gv.gb_P_eps)))*cp[i].p_em[j];
 						cp[i].phase_bulkModulus += -dGdP/( dG2dP2 + pow(((dGdTPP-dGdTMP)/(gv.gb_P_eps)),2.0)/dG2dT2 ) * cp[i].p_em[j];
 						cp[i].phase_cp    		+= -T*(dG2dT2)*cp[i].p_em[j];
+						cp[i].phase_compressibility += -(1.0/(dGdP*10.0)*(dG2dP2))*cp[i].p_em[j];
 					}
 					
 
@@ -1827,6 +1830,7 @@ global_variable compute_density_volume_modulus(				int 				 EM_database,
 				PP_ref_db[i].phase_bulkModulus	= -dGdP/( dG2dP2 + pow(((dGdTPP-dGdTMP)/(gv.gb_P_eps)),2.0)/dG2dT2 );
 				PP_ref_db[i].phase_cp 			= -T*(dG2dT2);
 				PP_ref_db[i].phase_expansivity 	= 1.0/(dGdP*10.0)*((dGdTPP-dGdTMP)/(gv.gb_P_eps));
+				PP_ref_db[i].phase_compressibility = -(1.0/(dGdP*10.0)*(dG2dP2));
 			}
 
 			/* shear modulus	*/
@@ -2016,6 +2020,7 @@ global_variable compute_density_volume_modulus(				int 				 EM_database,
 			gv.system_entropy += cp[i].phase_entropy*cp[i].ss_n_mol;//*cp[i].factor;
 			gv.system_cp 	  += cp[i].phase_cp*cp[i].ss_n_mol;
 			gv.system_expansivity 	  += cp[i].phase_expansivity*cp[i].ss_n_mol;
+			gv.system_compressibility += cp[i].phase_compressibility*cp[i].ss_n_mol;
 		}
 	}
 	for (int i = 0; i < gv.len_pp; i++){
@@ -2023,6 +2028,7 @@ global_variable compute_density_volume_modulus(				int 				 EM_database,
 			gv.system_entropy += PP_ref_db[i].phase_entropy*gv.pp_n_mol[i];//*PP_ref_db[i].factor;		
 			gv.system_cp 	  += PP_ref_db[i].phase_cp*gv.pp_n_mol[i];	
 			gv.system_expansivity 	  += PP_ref_db[i].phase_expansivity*gv.pp_n_mol[i];	
+			gv.system_compressibility += PP_ref_db[i].phase_compressibility*gv.pp_n_mol[i];
 		}
 	}
 	

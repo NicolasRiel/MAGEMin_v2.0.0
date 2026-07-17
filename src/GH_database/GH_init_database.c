@@ -37,11 +37,11 @@ oxide_data oxide_info_gh = {
 gh_dataset gh_db = {
 	1,							/* ds_version (single Stage-A dataset)				*/
 	13,							/* number of oxides									*/
-	26,							/* number of pure phases							*/
+	25,							/* number of pure phases							*/
 	16,							/* number of solution phases						*/
 	{"SiO2"	,"Al2O3","CaO"	,"MgO"	,"FeO"	,"K2O"	,"Na2O"	,"TiO2"	,"O"	,"MnO"	,"Cr2O3","H2O"	,"CO2"				            },
 	{"aTiO2","aAl2O3","qfm" ,"hm"   ,"q"	,"crst"	,"trd"	,"cor"	,"sill"	,"and"	,"ky"	,"ru"	,"sph"	,"perov","cc"	,"arag"	,"mgs"	,"sid"	,
-	 "dol"	,"spu"	,"til"	,"mu"	,"aeg"	,"aen"	,"O2"	,"H2O"															        },
+	 "dol"	,"spu"	,"til"	,"mu"	,"aeg"	,"aen"	,"O2"	/* ,"H2O"*/															        },
 	{"liq"	,"ol"	,"fsp"	,"bi"	,"g"	,"hb"	,"lc"	,"mel"	,"cum"	,"spn"	,"cpx"	,"opx"	,"fl"	,"rhm"	,"nph"	,"kls"	},
 
 	{1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		,1		}, // allow solvus?
@@ -326,8 +326,8 @@ global_variable get_bulk_gh( global_variable gv) {
         gv.bulk_rock[8]  = 0.39;    /** O     */
         gv.bulk_rock[9]  = 0.04;    /** MnO   */
         gv.bulk_rock[10] = 0.4;   /** Cr2O3 */
-        gv.bulk_rock[11] = 5.18;    /** H2O   */
-        gv.bulk_rock[12] = 0.14;    /** CO2   */
+        gv.bulk_rock[11] = 50.0;    /** H2O   */
+        gv.bulk_rock[12] = 2.0;    /** CO2   */
     }
     else if (gv.test == 2){ /* rough rhyolite */
         /* SiO2  Al2O3  CaO   MgO   FeO  K2O  Na2O  TiO2  O    MnO   Cr2O3 H2O  CO2 */
@@ -342,7 +342,7 @@ global_variable get_bulk_gh( global_variable gv) {
         gv.bulk_rock[8]  = 0.0;    /** O     */
         gv.bulk_rock[9]  = 0.0;    /** MnO   */
         gv.bulk_rock[10] = 0.00;   /** Cr2O3 */
-        gv.bulk_rock[11] = 5.18;    /** H2O   */
+        gv.bulk_rock[11] = 30.18;    /** H2O   */
         gv.bulk_rock[12] = 0.0;    /** CO2   */
     }
     else{

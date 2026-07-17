@@ -550,19 +550,45 @@ void ss_min_LP(			global_variable 	 gv,
 			candidate_ok 	= 1;
 			ph_id 			= cp[i].id;
 
-			// deactivating the next part helps for IGAD database at VHT
-			is_liq_synth_candidate = (liq_synth_active && ph_id == ph_id_liq && !liq_real_min_found);
-			if (liq_synth_active && ph_id == ph_id_liq){
-				act = is_liq_synth_candidate ? 1 : 0;
-			}
-			else if ( strcmp( gv.SS_list[ph_id], "liq") == 0 && gv.n_min[ph_id] > gv.n_max_val){
-				act = 0;
+			/* NR-17/07/26 
+				Here I added a target rule for rMELTS. The liquid model including H2O and CO2 leads to a large number of local minimum. Brute force exploration is needed to lead the minimization toward the global minimum.
+				This is something that is not needed for the other databases, as the Gibbs surface of liquid have smoother landscape.
+			*/
+			if (strcmp(gv.db, "rMELTS") == 0){
+				if (gv.global_ite < gv.act_rMELTS_liq_pc_synth){
+					act = 1;
+				}
+				else{
+					is_liq_synth_candidate = (liq_synth_active && ph_id == ph_id_liq && !liq_real_min_found);
+					if (liq_synth_active && ph_id == ph_id_liq){
+						act = is_liq_synth_candidate ? 1 : 0;
+					}
+					else if ( strcmp( gv.SS_list[ph_id], "liq") == 0 && gv.n_min[ph_id] > gv.n_max_val){
+						act = 0;
+					}
+					else{
+						act = 1;
+					}
+				}
+
 			}
 			else{
-				act = 1;
+				// deactivating the next part helps for IGAD database at VHT
+				is_liq_synth_candidate = (liq_synth_active && ph_id == ph_id_liq && !liq_real_min_found);
+				if (liq_synth_active && ph_id == ph_id_liq){
+					act = is_liq_synth_candidate ? 1 : 0;
+				}
+				else if ( strcmp( gv.SS_list[ph_id], "liq") == 0 && gv.n_min[ph_id] > gv.n_max_val){
+					act = 0;
+				}
+				else{
+					act = 1;
+				}
 			}
-			gv.n_min[ph_id] += 1;
 
+
+
+			gv.n_min[ph_id] += 1;
 			if (act == 1){
 				cp[i].min_time		  		= 0.0;								/** reset local minimization time to 0.0 */
 				u = clock(); 

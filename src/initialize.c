@@ -205,14 +205,15 @@ global_variable global_variable_alloc( bulk_info  *z_b ){
 													pseudocompound is added to the Ppc list 										*/
 
 	/* local minimizer options 	*/
-	gv.bnd_val          = 1.0e-7;				/** boundary value for x-eos 										 				*/
+	gv.bnd_val          = 1.0e-6;				/** boundary value for x-eos 										 				*/
 	gv.box_size_mode_PGE= 0.25;					/** box edge size of the compositional variables used during PGE local minimization */
 	gv.maxeval   		= 1024;					/** max number of evaluation of the obj function for mode 1 (PGE)					*/
 	gv.maxgmTime        = 0.1; 					/** set a maximum minimization time for the local minimizer (sec)					*/
 	gv.box_size_mode_LP	= 1.0;					/** box edge size of the compositional variables used during PGE local minimization */
 
 	/* "liq" redundant-occurrence pseudocompound synthesis (gh and tc) */
-	gv.n_max_val 					= 3;	//def3	/** controls the max number of minimization per identical phases */
+	gv.n_max_val 					= 3;	 		/** controls the max number of minimization per identical phases */
+	gv.act_rMELTS_liq_pc_synth      = 64;	     	/** number of global iterations steps before lienar discretization of the PC generation */
 	gv.liq_pc_synth_active			= 1;			/** 1: composite method active; 0: fully disabled, legacy per-occurrence NLopt path 	*/
 	gv.gh_liq_pc_synth_h			= 1e-2;			/** base xeos step size for the synthetic pseudocompound spread - actual step used
 													    is this * sqrt(gv.gamma_norm[.]), clamped to [1e-6, 1e-2] (see GH_liq_pc_synth_step) */
@@ -306,6 +307,7 @@ csd_phase_set CP_INIT_function(csd_phase_set cp, global_variable gv){
 	cp.phase_density  		= 0.0;
 	cp.phase_cp				= 0.0;
 	cp.phase_expansivity	= 0.0;
+	cp.phase_compressibility= 0.0;
 	cp.phase_entropy		= 0.0;
 	cp.phase_enthalpy		= 0.0;
 		
@@ -748,6 +750,7 @@ global_variable reset_gv(					global_variable 	 gv,
 	gv.system_volume_cm3mol = 0.;
 	gv.system_cp    	  = 0.;
 	gv.system_expansivity = 0.;
+	gv.system_compressibility = 0.;
 	gv.system_bulkModulus = 0.;
 	gv.system_shearModulus= 0.;
 	gv.system_Vp 		  = 0.;
@@ -826,6 +829,7 @@ void reset_sp(						global_variable 	 gv,
 	sp[0].aFeO  						= 0.0;
 
 	sp[0].alpha  						= 0.0;
+	sp[0].beta  						= 0.0;
 	sp[0].cp  							= 0.0;
 	sp[0].s_cp  						= 0.0;
 	sp[0].cp_wt  						= 0.0;

@@ -217,6 +217,7 @@ typedef struct global_variables {
 	double   obj_refine_fac;    /** how much the residual of the objective function is refined during iterations */
 
 	/* "liq" redundant-occurrence pseudocompound synthesis (ss_min_LP, gh and tc) */
+	int 	 act_rMELTS_liq_pc_synth;	/** number of redundant per-occurrence liq NLopt solves to perform before switching to the analytic hyperplane synthesis */
 	int 	 liq_pc_synth_active;		/** 1 (default): replace redundant per-occurrence liq NLopt solves with the
 											    analytic hyperplane synthesis; 0: fully disabled, legacy per-occurrence path */
 	double   gh_liq_pc_synth_h;			/** base xeos step size for the synthetic pseudocompound spread - scaled by
@@ -298,6 +299,7 @@ typedef struct global_variables {
 	double   system_enthalpy;
 	double   system_cp;
 	double   system_expansivity;
+	double   system_compressibility;
 	double   system_bulkModulus;
 	double   system_shearModulus;
 	double   system_Vp;
@@ -636,6 +638,7 @@ typedef struct csd_phase_sets {
 	double  phase_density;
 	double  phase_cp;
 	double  phase_expansivity;
+	double  phase_compressibility;
 	double  phase_bulkModulus;
 	double  phase_isoTbulkModulus;
 	// double  volume_P0;
@@ -655,6 +658,7 @@ typedef struct stb_SS_phases {
 	double   deltaG;
 	double   V;
 	double   alpha;
+	double   beta;
 	double   cp;
 	double   entropy;
 	double   enthalpy;	
@@ -722,6 +726,7 @@ typedef struct stb_PP_phases {
 	double   deltaG;
 	double   V;
 	double   alpha;
+	double   beta;
 	double   cp;
 	double   entropy;
 	double   enthalpy;	
@@ -775,6 +780,7 @@ typedef struct stb_systems {
 	double  aFeO;
 
 	double  alpha;
+	double  beta;
 	double  cp;
 	double  s_cp;
 	double  cp_wt;
