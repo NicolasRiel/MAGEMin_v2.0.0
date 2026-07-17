@@ -14680,7 +14680,7 @@ struct ss_pc gh_cum_pc_xeos[41] = {
     at all).
 */
 struct ss_pc gh_fluid_pc_xeos[41] = {
-    {{0.9999,0.0001}},
+    {{0.99,0.01}},
     {{0.975,0.025}},
     {{0.95,0.05}},
     {{0.925,0.075}},
@@ -14720,7 +14720,7 @@ struct ss_pc gh_fluid_pc_xeos[41] = {
     {{0.075,0.925}},
     {{0.05,0.95}},
     {{0.025,0.975}},
-    {{0.0001,0.9999}},
+    {{0.01,0.99}},
 };
 /** Rhombohedral oxide (Geikielite-Hematite-Ilmenite-Pyrophanite-Corundum):
     full simplex grid at step=0.10 (adjust_simplex eps=1e-4), generated via
