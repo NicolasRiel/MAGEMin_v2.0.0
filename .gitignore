@@ -12,6 +12,7 @@ tools/.DS_Store
 .vscode/
 *.txt
 *.png
+*.md
 Manifest.toml
 .DS_Store
 libMAGEMin.dylib
