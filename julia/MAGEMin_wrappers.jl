@@ -886,8 +886,7 @@ end
 """
 function Finalize_MAGEMin(dat::MAGEMin_Data)
     for id in 1:Threads.maxthreadid()
-        LibMAGEMin.FreeDatabases(dat.gv[id], dat.DB[id], dat.z_b[id])
-        # splx_data needs to be freed
+        LibMAGEMin.FreeDatabases(dat.gv[id], dat.DB[id], dat.z_b[id], pointer_from_objref(dat.splx_data[id]))
      end
      return nothing
 end
@@ -1066,7 +1065,7 @@ function  init_MAGEMin( db          :: String               =  "ig";
 end
 
 """
-    finalize_MAGEMin(gv, DB, z_b)
+    finalize_MAGEMin(gv, DB, z_b, splx_data)
 
     Free the memory allocated by `init_MAGEMin`.
 
@@ -1078,13 +1077,15 @@ end
         Thermodynamic database structure.
     z_b : bulk_infos
         Bulk rock information structure.
+    splx_data : TypeSplxData
+        Simplex levelling structure.
 
     Returns
     -------
     nothing
 """
-function  finalize_MAGEMin(gv,DB, z_b)
-    LibMAGEMin.FreeDatabases(gv, DB, z_b)
+function  finalize_MAGEMin(gv, DB, z_b, splx_data)
+    LibMAGEMin.FreeDatabases(gv, DB, z_b, pointer_from_objref(splx_data))
     return nothing
 end
 

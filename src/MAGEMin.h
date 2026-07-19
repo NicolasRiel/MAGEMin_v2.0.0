@@ -856,9 +856,10 @@ typedef struct Database {	PP_ref     		 *PP_ref_db;		/** Pure phases 											
 Databases InitializeDatabases(				global_variable 	 gv, 
 											int 				 EM_database		);
 
-void FreeDatabases(							global_variable 	 gv, 
+void FreeDatabases(							global_variable 	 gv,
 											Databases			 DB,
-											bulk_info 	 		 z_b				);
+											bulk_info 	 		 z_b,
+											simplex_data		*splx_data			);
 											
 global_variable ComputeG0_point( 			int 				 EM_database,
 											bulk_info 	 		 z_b,
