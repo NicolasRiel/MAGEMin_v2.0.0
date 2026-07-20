@@ -184,7 +184,7 @@ typedef struct global_variables {
 	/* LEVELLING */
 	double   LVL_time;			/** time taken for levelling (ms) */
 	double   em2ss_shift;		/** small value to retrieve x-eos from pure endmember after levelling */
-	
+
 	/* PSEUDOCOMPOUNDS */
 	double   bnd_filter_pc;     /** value of driving force the pseudocompound is considered to reduce the compositional space */
 	double   bnd_filter_pge;     /** value of driving force the pseudocompound is considered to reduce the compositional space */
